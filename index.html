@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voice Studio: long text to natural speech</title>
+<meta name="description" content="Turn long texts such as syllabi, notes and scripts into natural speech with Google’s Gemini voices. Bring your own API key. Nothing is stored on our servers.">
+<style>
+:root{--bg:#fff;--fg:#202124;--mut:#5f6368;--pri:#0b57d0;--prf:#fff;--card:#f1f3f4;--line:#dadce0;--ok:#146c2e;--bad:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#121316;--fg:#e8eaed;--mut:#9aa0a6;--pri:#8ab4f8;--prf:#0b1b33;--card:#1e2024;--line:#3c4043;--ok:#81c995;--bad:#f28b82}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--pri)}.skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:var(--bg);padding:8px;z-index:9}
+.wrap{max-width:860px;margin:0 auto;padding:0 18px}
+header{border-bottom:1px solid var(--line)}header .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:space-between;padding:12px 18px}
+.brand{font-weight:700;font-size:1.2rem;text-decoration:none;color:var(--fg)}nav a{margin-right:14px;text-decoration:none}nav a[aria-current=page]{font-weight:700;text-decoration:underline}
+main{padding:28px 0 40px}main:focus{outline:none}h1{font-size:1.8rem;line-height:1.25;margin:0 0 8px}h2{font-size:1.2rem;margin:0 0 6px}
+.lead{color:var(--mut);margin:0 0 20px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 16px}
+label{display:block;font-weight:600;margin:12px 0 4px}input,select,textarea{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--mut);border-radius:8px;padding:10px}
+textarea{min-height:220px;resize:vertical}.row{display:flex;flex-wrap:wrap;gap:12px}.row>div{flex:1 1 200px}
+button,.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:var(--prf);padding:10px 18px;margin:8px 8px 0 0;text-decoration:none;display:inline-block}
+button.sec,.btn.sec{background:transparent;color:var(--pri)}button.dng{background:transparent;color:var(--bad);border-color:var(--bad)}button:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--pri);outline-offset:2px}[hidden]{display:none!important}
+ul.keys{list-style:none;padding:0;margin:8px 0}ul.keys li{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line);padding:4px 0}
+.hint{color:var(--mut);font-size:.92rem;margin:4px 0}#status{font-weight:600;min-height:1.6em}progress{width:100%;height:14px}audio{width:100%;margin-top:10px}
+footer{border-top:1px solid var(--line);padding:20px 0;color:var(--mut);font-size:.92rem}footer a{margin-right:14px}
+.legal h2{margin-top:22px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+<header><div class="wrap">
+<a class="brand" href="#tool">Voice Studio</a>
+<nav aria-label="Main"><a href="#tool">Converter</a><a href="#about">About</a><a href="#contact">Contact</a><a href="#privacy">Privacy</a><a href="#terms">Terms</a></nav>
+</div></header>
+
+<main id="main" tabindex="-1"><div class="wrap">
+
+<section id="tool" data-title="Converter">
+<h1>Turn long text into natural speech</h1>
+<p class="lead">Paste a syllabus, notes or a script of any length. Voice Studio splits it into safe parts, reads each part with a Gemini voice and joins everything into one audio file.</p>
+
+<div class="card">
+<h2>1. Your API key</h2>
+<p class="hint">You bring your own Google Gemini API key. It stays in this browser and is sent only to Google. <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a free key in Google AI Studio (opens in a new tab)</a>.</p>
+<ul class="keys" id="keylist"></ul>
+<label for="newkey">New API key</label>
+<input id="newkey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a key here">
+<button id="addkey" type="button">Add key</button>
+<p id="keymsg" class="hint" role="status"></p>
+</div>
+
+<div class="card">
+<h2>2. Voice and options</h2>
+<div class="row">
+<div><label for="model">Model</label><select id="model"><option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS (best quality)</option><option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS (faster)</option><option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (preview)</option></select></div>
+<div><label for="voice">Voice</label><select id="voice"></select></div>
+</div>
+<label for="style">Style instruction (optional)</label>
+<input id="style" placeholder="For example: slowly and calmly">
+<div class="row">
+<div><label for="chunk">Characters per part</label><input id="chunk" type="number" min="300" max="3000" value="1800"></div>
+<div><label for="pause">Pause between requests (seconds)</label><input id="pause" type="number" min="0" max="60" value="2"></div>
+<div><label for="sil">Silence between parts (milliseconds)</label><input id="sil" type="number" min="0" max="3000" value="250"></div>
+</div>
+</div>
+
+<div class="card">
+<h2>3. Your text</h2>
+<label for="text">Text to convert</label>
+<textarea id="text" placeholder="Type or paste your text here"></textarea>
+<p id="count" class="hint" aria-live="off">Characters: 0</p>
+<button id="gen" type="button">Generate audio</button>
+<button id="prev" type="button" class="sec">Preview first 200 characters</button>
+<button id="cancel" type="button" class="dng" hidden>Cancel</button>
+<button id="resume" type="button" class="sec" hidden>Resume</button>
+<p id="status" role="status" aria-live="polite"></p>
+<progress id="prog" value="0" max="100" aria-label="Progress" hidden></progress>
+</div>
+
+<div class="card" id="result" hidden>
+<h2>Your audio</h2>
+<audio id="player" controls></audio>
+<a id="dl" class="btn" download="voice-studio.wav">Download WAV file</a>
+</div>
+<p class="hint">Audio is generated by AI. Please follow the rules of the platform where you publish it, including any disclosure of synthetic voices. Audio from Gemini carries an inaudible watermark.</p>
+</section>
+
+<section id="about" data-title="About" hidden class="legal">
+<h1>About Voice Studio</h1>
+<p>Voice Studio was created by Moutter Rasool, a developer from Faisalabad, Pakistan, who builds accessible tools for blind and visually impaired people. It began as a plug-in for the JieShuo screen reader, where students needed to turn very long syllabi into audio.</p>
+<h2>What it does</h2>
+<p>It splits long text at paragraph and sentence ends, reads every part with Google’s Gemini speech models, switches between your keys when a quota runs out, and joins the result into one file.</p>
+<h2>Who it is for</h2>
+<p>Students, teachers, video creators, podcasters and freelancers who need clear narration without recording it by hand.</p>
+<h2>Accessibility</h2>
+<p>The whole site works with a keyboard and a screen reader. If something is hard to use, please <a href="#contact">tell us</a>.</p>
+<p class="hint">Voice Studio is an independent project and is not affiliated with Google. Gemini is a trademark of Google LLC.</p>
+</section>
+
+<section id="contact" data-title="Contact" hidden class="legal">
+<h1>Contact</h1>
+<p>Questions, bug reports or ideas are welcome.</p>
+<p>Email: <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a></p>
+<p>Developer: Moutter Rasool, Faisalabad, Pakistan.</p>
+<p>We read every message and usually reply within a few working days. Please never send your API key by email.</p>
+</section>
+
+<section id="privacy" data-title="Privacy Policy" hidden class="legal">
+<h1>Privacy Policy</h1>
+<p class="hint">Last updated: 10 November 2026</p>
+<h2>The short version</h2>
+<p>Voice Studio has no accounts and no database. We do not receive your text, your keys or your audio.</p>
+<h2>What stays in your browser</h2>
+<p>Your API keys and settings are saved in your browser’s local storage so you do not have to enter them again. You can remove them at any time with the Remove buttons or by clearing your browser data. Your text and audio are kept in memory while the page is open and are gone when you close it.</p>
+<h2>What is sent to Google</h2>
+<p>When you generate audio, your browser sends your text and your key directly to Google’s Gemini API. Google’s own terms apply to that data. On the free quota, Google may use submitted content to improve its products, and human reviewers may read it. Do not submit private, confidential or sensitive text with a free key. Paid quota is handled under Google’s paid terms.</p>
+<h2>Hosting and cookies</h2>
+<p>The website host may keep standard server logs, such as IP address and time of visit. We use no advertising, no analytics and no tracking cookies.</p>
+<h2>Children</h2>
+<p>Voice Studio is for people aged 18 or older, as required by Google’s Gemini API terms.</p>
+<h2>Your choices and contact</h2>
+<p>Because we hold no personal data about you, there is nothing for us to delete. For any question, write to <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a>. We may update this policy and will change the date above when we do.</p>
+</section>
+
+<section id="terms" data-title="Terms and Conditions" hidden class="legal">
+<h1>Terms and Conditions</h1>
+<p class="hint">Last updated: 10 November 2026</p>
+<h2>1. Acceptance</h2>
+<p>By using Voice Studio you agree to these terms. If you do not agree, please do not use it.</p>
+<h2>2. The service</h2>
+<p>Voice Studio is a tool that sends your text to Google’s Gemini speech models using your own API key and gives you the audio. You must be 18 or older and in a region where the Gemini API is available.</p>
+<h2>3. Your key and Google’s terms</h2>
+<p>You are responsible for your key, its quota and its costs. You must follow the Gemini API Additional Terms and Google’s Generative AI Prohibited Use Policy, including the rules against impersonation meant to deceive, misleading claims that content was made only by a human, and illegal or harmful content.</p>
+<h2>4. Your content and generated audio</h2>
+<p>You keep your rights in the text you provide and you confirm you have the right to use it. Google states that it does not claim ownership of generated content, but it may generate similar content for others. Audio created only by AI may not be protected by copyright in some countries. You are responsible for how you use and publish the audio, including any disclosure that a platform requires.</p>
+<h2>5. Acceptable use</h2>
+<p>Do not use Voice Studio to copy a person’s voice without their permission, to deceive or defraud people, to create unlawful content, or to bypass Google’s safety measures.</p>
+<h2>6. No warranty</h2>
+<p>The service is provided as it is and as available. AI speech can contain mistakes in pronunciation, wording or tone, so check the result before you rely on it. Models, prices and quotas are controlled by Google and may change.</p>
+<h2>7. Limitation of liability</h2>
+<p>To the extent allowed by law, the developer is not liable for indirect or consequential loss, for loss of data, or for charges made by Google to your account.</p>
+<h2>8. Changes and law</h2>
+<p>We may change the service or these terms at any time; the date above shows the latest version. These terms are governed by the laws of Pakistan.</p>
+<h2>9. Contact</h2>
+<p>Moutter Rasool, <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a>.</p>
+</section>
+
+</div></main>
+
+<footer><div class="wrap">
+<p><a href="#about">About</a><a href="#contact">Contact</a><a href="#privacy">Privacy Policy</a><a href="#terms">Terms and Conditions</a></p>
+<p>© 2026 AlphaAutomates, Moutter Rasool. Not affiliated with Google. Gemini is a trademark of Google LLC.</p>
+</div></footer>
+
+<script>
+/* ---- PURE LOGIC ---- */
+const SENT=/[\s\S]*?[.!?۔؟]+["'”)]*(?=\s|$)\s*|[\s\S]+$/g;
+function chunks(text,max){
+  text=text.replace(/\r\n?/g,'\n');const out=[];let cur='';
+  const flush=()=>{const c=cur.trim();if(/[\p{L}\p{N}]/u.test(c))out.push(c);cur=''};
+  const words=s=>{const r=[];let c='';for(const w of s.split(/\s+/)){if(!w)continue;
+    if(w.length>max){if(c){r.push(c);c=''}for(let i=0;i<w.length;i+=max)r.push(w.slice(i,i+max));continue}
+    if(c&&c.length+1+w.length>max){r.push(c);c=w}else c=c?c+' '+w:w}
+    if(c)r.push(c);return r};
+  for(const para of text.split('\n')){const p=para.trim();if(!p)continue;
+    if(p.length>max){flush();const pcs=[];let c='';
+      for(let s of (p.match(SENT)||[p])){s=s.trim();if(!s)continue;
+        if(s.length>max){if(c){pcs.push(c);c=''}pcs.push(...words(s));continue}
+        if(c&&c.length+1+s.length>max){pcs.push(c);c=s}else c=c?c+' '+s:s}
+      if(c)pcs.push(c);out.push(...pcs.slice(0,-1));cur=pcs[pcs.length-1]||''}
+    else if(cur&&cur.length+1+p.length<=max)cur+='\n'+p;else{flush();cur=p}}
+  flush();return out}
+function newer(m){const x=String(m).match(/gemini-(\d+)\.(\d+)/);return !!x&&(+x[1]>3||(+x[1]===3&&+x[2]>=8))}
+function buildBody(model,voice,style,text){
+  style=(style||'').trim();const g={responseModalities:['AUDIO']};let parts;
+  if(newer(model)){const p={text};if(style)p.speech_metadata={style};parts=[p];g.speechConfig={voiceConfig:{voice}}}
+  else{parts=[{text:style?'Say '+style+':\n'+text:text}];g.speechConfig={voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}
+  return{contents:[{role:'user',parts}],generationConfig:g}}
+function classify(status,t){
+  if(status===429){const m=t.match(/"retryDelay"\s*:\s*"(\d+)/);return{kind:/per ?day/i.test(t)?'day':'minute',wait:m?+m[1]+2:40}}
+  if(status===401||status===403||(status===400&&/API_KEY_INVALID|API key not valid|API key expired/i.test(t)))return{kind:'badkey'};
+  if(status===404)return{kind:'model'};if(status===400)return{kind:'bad'};if(status>=500)return{kind:'server'};return{kind:'other'}}
+function pickKey(ks,start,now){let min=null;for(let i=0;i<ks.length;i++){const j=(start+i)%ks.length,k=ks[j];
+  if(k.dead)continue;if(k.cool<=now)return{i:j};if(min===null||k.cool<min)min=k.cool}
+  return{i:-1,wait:min===null?null:min-now}}
+function wavBlob(parts,rate,silMs){
+  const sil=new Uint8Array(Math.floor(rate*silMs/1000)*2);let n=0;
+  parts.forEach((p,i)=>{n+=p.length+(i?sil.length:0)});
+  const buf=new ArrayBuffer(44+n),dv=new DataView(buf),u=new Uint8Array(buf);
+  const s=(o,t)=>{for(let i=0;i<t.length;i++)dv.setUint8(o+i,t.charCodeAt(i))};
+  s(0,'RIFF');dv.setUint32(4,36+n,true);s(8,'WAVEfmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);
+  dv.setUint32(24,rate,true);dv.setUint32(28,rate*2,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);s(36,'data');dv.setUint32(40,n,true);
+  let o=44;parts.forEach((p,i)=>{if(i){u.set(sil,o);o+=sil.length}u.set(p,o);o+=p.length});
+  return new Blob([buf],{type:'audio/wav'})}
+/* ---- END PURE LOGIC ---- */
+
+const $=s=>document.querySelector(s);
+const API='https://generativelanguage.googleapis.com/v1beta/models';
+const VOICES='Zephyr Puck Charon Kore Fenrir Leda Orus Aoede Callirrhoe Autonoe Enceladus Iapetus Umbriel Algieba Despina Erinome Algenib Rasalgethi Laomedeia Achernar Alnilam Schedar Gacrux Pulcherrima Achird Zubenelgenubi Vindemiatrix Sadachbia Sadaltager Sulafat'.split(' ');
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let keys=store.get('vs.keys',[]),job=null,running=false,ctl=null,url=null;
+const say=m=>{$('#status').textContent=m};
+const sleep=ms=>new Promise(r=>{const t=setTimeout(r,ms);ctl&&ctl.signal.addEventListener('abort',()=>{clearTimeout(t);r()})});
+
+/* routing */
+const pages=['tool','about','contact','privacy','terms'];
+function route(){const id=pages.includes(location.hash.slice(1))?location.hash.slice(1):'tool';
+  pages.forEach(p=>{$('#'+p).hidden=p!==id});
+  document.querySelectorAll('nav a').forEach(a=>a.getAttribute('href')==='#'+id?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current'));
+  document.title=$('#'+id).dataset.title+' | Voice Studio';window.scrollTo(0,0);$('#main').focus()}
+addEventListener('hashchange',route);
+
+/* settings */
+$('#voice').innerHTML=VOICES.map(v=>`<option>${v}</option>`).join('');
+const cfg=Object.assign({model:'gemini-3.8-flash-tts',voice:'Kore',style:'',chunk:1800,pause:2,sil:250},store.get('vs.cfg',{}));
+['model','voice','style','chunk','pause','sil'].forEach(k=>{const e=$('#'+k);e.value=cfg[k];e.addEventListener('change',()=>{cfg[k]=e.value;store.set('vs.cfg',cfg)})});
+const num=(id,lo,hi,d)=>{const v=parseFloat($('#'+id).value);return isNaN(v)?d:Math.min(hi,Math.max(lo,v))};
+$('#text').addEventListener('input',()=>{const n=[...$('#text').value].length;
+  $('#count').textContent='Characters: '+n.toLocaleString()+(n?'. About '+Math.ceil(n/num('chunk',300,3000,1800))+' parts.':'')});
+
+/* keys */
+function drawKeys(){const ul=$('#keylist');ul.innerHTML='';
+  if(!keys.length){ul.innerHTML='<li>No keys saved yet.</li>';return}
+  keys.forEach((k,i)=>{const li=document.createElement('li'),t=k.slice(-4);
+    li.innerHTML=`<span>Key ${i+1}, ending ${t}</span>`;
+    const b=document.createElement('button');b.type='button';b.className='sec';b.textContent='Remove';
+    b.setAttribute('aria-label',`Remove key ${i+1}, ending ${t}`);
+    b.onclick=()=>{keys.splice(i,1);store.set('vs.keys',keys);drawKeys();$('#keymsg').textContent='Key removed.';$('#newkey').focus()};
+    li.appendChild(b);ul.appendChild(li)})}
+async function verify(k){try{const r=await fetch(API+'?pageSize=1',{headers:{'x-goog-api-key':k}});
+  if(r.ok)return'ok';const c=classify(r.status,await r.text());return c.kind==='badkey'?'bad':(c.kind==='minute'||c.kind==='day')?'limited':'err'}catch(e){return'err'}}
+$('#addkey').onclick=async()=>{const raw=$('#newkey').value.trim();const msg=$('#keymsg');
+  if(!raw){msg.textContent='Paste a key first.';return}
+  if(keys.includes(raw)){msg.textContent='That key is already saved.';return}
+  msg.textContent='Checking the key with Google…';$('#addkey').disabled=true;
+  const r=await verify(raw);$('#addkey').disabled=false;
+  if(r==='ok'||r==='limited'){keys.push(raw);store.set('vs.keys',keys);$('#newkey').value='';drawKeys();
+    msg.textContent='Key checked and saved.'+(r==='limited'?' Its quota limit is reached right now, but the key is valid.':'')}
+  else msg.textContent=r==='bad'?'Google rejected this key, so it was not saved.':'Could not check the key. Check your internet connection and try again.'};
+
+/* audio */
+function toPcm(d,model){const bin=atob(d.data),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+  const mime=d.mimeType||'';const strip=mime?/wav/i.test(mime):newer(model);
+  let p=strip?u.subarray(44):u;p=p.subarray(0,p.length-(p.length%2));
+  const m=mime.match(/rate=(\d+)/);return{pcm:p,rate:m?+m[1]:24000}}
+async function call(model,voice,style,text,key,signal){
+  let res;try{res=await fetch(`${API}/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(buildBody(model,voice,style,text)),signal})}
+  catch(e){return{kind:e.name==='AbortError'?'abort':'network'}}
+  const t=await res.text();
+  if(res.ok){try{const j=JSON.parse(t),pt=((j.candidates||[])[0]||{}).content;const d=pt&&(pt.parts||[]).map(x=>x.inlineData).find(x=>x&&x.data);if(d)return{kind:'ok',d}}catch(e){}return{kind:'noaudio'}}
+  const c=classify(res.status,t);c.msg=(t.match(/"message"\s*:\s*"(.*?)"/)||[])[1]||'';return c}
+
+/* generation */
+function ui(){$('#gen').disabled=running;$('#prev').disabled=running;$('#cancel').hidden=!running;
+  $('#resume').hidden=running||!job||job.done>=job.cs.length;$('#prog').hidden=!job}
+function fail(m){running=false;say(m+(job?` ${job.done} of ${job.cs.length} parts are done. You can press Resume.`:''));ui()}
+async function run(){
+  const ks=keys.map(key=>({key,cool:0,dead:false}));let ki=0,tries=0,waits=0;
+  if(!ks.length){fail('Add an API key first.');return}
+  running=true;ctl=new AbortController();ui();say(`Generating audio. ${job.cs.length-job.done} parts to go.`);
+  while(job.done<job.cs.length){
+    if(ctl.signal.aborted){running=false;say(`Cancelled. ${job.done} of ${job.cs.length} parts are done. Press Resume to continue.`);ui();return}
+    const pk=pickKey(ks,ki,Date.now()/1000);
+    if(pk.i<0){if(pk.wait==null){fail('No usable key is left. Keys are invalid or their daily quota is finished.');return}
+      if(++waits>12){fail('The rate limit keeps blocking requests.');return}
+      say(`Rate limit reached. Waiting ${Math.ceil(pk.wait)} seconds.`);await sleep(pk.wait*1000);continue}
+    ki=pk.i;const r=await call(job.model,job.voice,job.style,job.cs[job.done],ks[ki].key,ctl.signal);
+    if(r.kind==='abort')continue;
+    if(r.kind==='ok'){try{const o=toPcm(r.d,job.model);if(!job.parts.length)job.rate=o.rate;job.parts.push(o.pcm);
+        job.done++;tries=0;waits=0;const pc=Math.floor(job.done*100/job.cs.length);$('#prog').value=pc;
+        if(job.done===1||job.done%5===0||job.done===job.cs.length)say(`Part ${job.done} of ${job.cs.length} done, ${pc} percent.`);
+        if(job.done<job.cs.length)await sleep(job.pause*1000);continue}catch(e){r.kind='noaudio'}}
+    if(r.kind==='minute'){ks[ki].cool=Date.now()/1000+r.wait;ki++;say(`Key ${ki} reached its per-minute limit. Switching or waiting.`)}
+    else if(r.kind==='day'){ks[ki].dead=true;ki++;say('A key finished its daily quota. Trying the next key.')}
+    else if(r.kind==='badkey'){ks[ki].dead=true;ki++;say('A key was rejected by Google. Skipping it.')}
+    else if(r.kind==='model'){fail('This model was not found for your key. Choose another model.');return}
+    else if(r.kind==='bad'){fail('Google rejected the request. '+(r.msg||''));return}
+    else{if(++tries>4){fail(`Part ${job.done+1} failed after several tries (${r.kind}).`);return}
+      say(`Part ${job.done+1} had a problem (${r.kind}). Retrying, attempt ${tries}.`);await sleep(3000*tries)}}
+  running=false;const blob=wavBlob(job.parts,job.rate,job.sil);
+  if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(blob);$('#player').src=url;$('#dl').href=url;$('#result').hidden=false;
+  const secs=Math.round(blob.size/(job.rate*2));say(`Finished. Your audio is ready, about ${Math.floor(secs/60)} minutes ${secs%60} seconds.`);ui();$('#player').focus()}
+$('#gen').onclick=()=>{const text=$('#text').value.trim();if(!text){say('Please enter some text first.');$('#text').focus();return}
+  const cs=chunks(text,num('chunk',300,3000,1800));if(!cs.length){say('There is nothing readable in the text.');return}
+  job={cs,done:0,parts:[],rate:24000,model:cfg.model,voice:cfg.voice,style:cfg.style,pause:num('pause',0,60,2),sil:num('sil',0,3000,250)};
+  $('#result').hidden=true;$('#prog').value=0;run()};
+$('#resume').onclick=()=>{if(job)run()};
+$('#cancel').onclick=()=>{if(ctl)ctl.abort()};
+$('#prev').onclick=async()=>{const t=$('#text').value.trim().slice(0,200);if(!t){say('Type some text to preview first.');return}
+  if(!keys.length){say('Add an API key first.');return}
+  say('Generating the preview…');const r=await call(cfg.model,cfg.voice,cfg.style,t,keys[0],undefined);
+  if(r.kind!=='ok'){say('Preview failed ('+r.kind+'). '+(r.msg||''));return}
+  const o=toPcm(r.d,cfg.model);const u=URL.createObjectURL(wavBlob([o.pcm],o.rate,0));const a=new Audio(u);a.onended=()=>URL.revokeObjectURL(u);
+  a.play().then(()=>say('Playing the preview.')).catch(()=>say('The preview is ready, but your browser blocked playback.'))};
+drawKeys();route();ui();
+</script>
+</body>
+</html>
