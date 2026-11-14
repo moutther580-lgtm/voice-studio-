@@ -1,0 +1,161 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isPrimaryAdmin() {
+      return isVerified() && request.auth.token.email == 'moutther580@gmail.com';
+    }
+
+    function isAdmin() {
+      return isPrimaryAdmin() || (
+        isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUser(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() <= 120
+        && data.role in ['user', 'admin']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWallet(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'paidCredits', 'dailyUsedChars', 'dailyDate', 'dailyLimit', 'totalCharsUsed', 'plan', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'paidCredits', 'dailyUsedChars', 'dailyDate', 'dailyLimit', 'totalCharsUsed', 'plan', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.paidCredits is int && data.paidCredits >= 0 && data.paidCredits <= 100000000
+        && data.dailyUsedChars is int && data.dailyUsedChars >= 0 && data.dailyUsedChars <= 1000000
+        && data.dailyDate is string && data.dailyDate.size() == 10 && data.dailyDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.dailyLimit is int && data.dailyLimit >= 0 && data.dailyLimit <= 100000
+        && data.totalCharsUsed is int && data.totalCharsUsed >= 0 && data.totalCharsUsed <= 1000000000
+        && data.plan in ['free', 'pro']
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLedgerEntry(data, entryId) {
+      return data.keys().hasAll(['id', 'uid', 'type', 'chars', 'creditsDelta', 'model', 'note', 'createdAt'])
+        && data.keys().hasOnly(['id', 'uid', 'type', 'chars', 'creditsDelta', 'model', 'note', 'createdAt'])
+        && data.id is string && data.id == entryId && isValidId(data.id)
+        && data.uid is string && isValidId(data.uid)
+        && data.type in ['tts_usage', 'credit_purchase', 'admin_grant']
+        && data.chars is int && data.chars >= 0 && data.chars <= 10000000
+        && data.creditsDelta is int && data.creditsDelta >= -10000000 && data.creditsDelta <= 100000000
+        && data.model is string && data.model.size() <= 80
+        && data.note is string && data.note.size() <= 240
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAdminRecord(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isPrimaryAdmin();
+      allow create: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidUser(incoming(), userId)
+        && incoming().email == request.auth.token.email
+        && incoming().role == 'user'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isVerified()
+        && isValidUser(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /wallets/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isPrimaryAdmin();
+      allow create: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidWallet(incoming(), userId)
+        && incoming().email == request.auth.token.email
+        && incoming().paidCredits == 0
+        && incoming().dailyUsedChars == 0
+        && incoming().dailyLimit == 3000
+        && incoming().totalCharsUsed == 0
+        && incoming().plan == 'free'
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isAdmin()
+        && isValidWallet(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyLimit', 'plan', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /ledger/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isPrimaryAdmin());
+      allow create: if isValidId(entryId)
+        && isAdmin()
+        && isValidLedgerEntry(incoming(), entryId)
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/wallets/$(incoming().uid));
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isPrimaryAdmin();
+      allow create: if isValidId(userId)
+        && isAdmin()
+        && isValidAdminRecord(incoming(), userId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId) && userId != request.auth.uid;
+    }
+  }
+}

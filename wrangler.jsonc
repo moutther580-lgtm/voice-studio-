@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/configuration/config-schema.json",
+  "name": "voice-studio",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-13",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "DAILY_FREE_CHAR_LIMIT": "3000",
+    "GLOBAL_DAILY_FREE_CHARS": "100000"
+  }
+  // Optional: Bind a Cloudflare KV namespace named USAGE_KV for persistent global/daily counters:
+  // "kv_namespaces": [
+  //   { "binding": "USAGE_KV", "id": "YOUR_KV_NAMESPACE_ID" }
+  // ]
+}
