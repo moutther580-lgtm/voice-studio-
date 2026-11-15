@@ -1,11 +1,16 @@
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
-import { extractDocument } from './doc-extract';
 import {
+  ADMIN_UID,
+  adminDeleteContactMessage,
+  adminFindWallet,
   adminGrantCredits,
+  adminListContactMessages,
+  adminListRecentLedger,
+  adminListUsers,
   adminListWallets,
+  adminSetContactMessageStatus,
   auth,
-  checkIsAdmin,
   ensureUserAndWallet,
   resendVerificationEmail,
   sendResetEmail,
@@ -13,19 +18,26 @@ import {
   signInWithGoogle,
   signOutUser,
   signUpEmail,
+  submitContactMessage,
   subscribeLedger,
   subscribeWallet,
+  verifyStrictAdmin,
+  type ContactMessageDoc,
   type LedgerEntryDoc,
+  type UserProfileDoc,
   type UserWalletDoc,
 } from './firebase';
 import {
   MODELS,
   VOICES,
   applyDictionary,
+  buildBody,
   buildDialogueItems,
   chunks,
+  classify,
   encodeMp3Blob,
   estimateStats,
+  getModelFallbackOrder,
   safePreviewSlice,
   toPcm,
   totalPcmDurationSeconds,
@@ -87,6 +99,21 @@ let activeQuota: QuotaState | null = null;
 let walletUnsub: Unsubscribe | null = null;
 let ledgerUnsub: Unsubscribe | null = null;
 
+let byokEnabled = store.get<boolean>('vs.byokEnabled', false);
+let byokKey = store.get<string>('vs.byokKey', '');
+
+function isByokActive(): boolean {
+  return Boolean(byokEnabled && byokKey.trim().length > 0);
+}
+
+let authResolved = false;
+let verifiedAdminSession = false;
+let adminDataLoaded = false;
+
+function isAdminActive(user: User | null): boolean {
+  return Boolean(user && user.emailVerified && user.uid === ADMIN_UID && verifiedAdminSession);
+}
+
 let dictRules: PronunciationRule[] = store.get<PronunciationRule[]>('vs.dict', []);
 let job: GenerationJob | null = null;
 let running = false;
@@ -96,6 +123,8 @@ let ctl: AbortController | null = null;
 let audioUrl: string | null = null;
 let lastBlob: Blob | null = null;
 let lastName = '';
+let loadedDocTitle = '';
+const sessionTitleCounts = new Map<string, number>();
 
 const loadedCfg = store.get<Partial<VoiceConfig>>('vs.cfg', {});
 const cfg: VoiceConfig = {
@@ -111,14 +140,63 @@ const cfg: VoiceConfig = {
   speed: [1, 1.25, 1.5, 2].includes(Number(loadedCfg.speed)) ? Number(loadedCfg.speed) : 1,
 };
 
-function makeFilename(ext: AudioFormat): string {
-  const d = new Date();
-  const z = (n: number) => String(n).padStart(2, '0');
-  return `voice-studio-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.${ext}`;
+function cleanDocBasename(fileName: string): string {
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+function cleanTitleSlug(raw: string): string {
+  const stripped = raw
+    .replace(/^(?:host|guest|speaker\s*[ab12]?|a|b)\s*:\s*/gim, '')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, ' ');
+  const words = stripped.match(/[\p{L}\p{N}]+/gu) || [];
+  if (!words.length) return '';
+
+  const picked: string[] = [];
+  let totalLen = 0;
+  for (const w of words.slice(0, 6)) {
+    const normalized = w.toLowerCase();
+    const nextLen = totalLen + (picked.length ? 1 : 0) + normalized.length;
+    if (picked.length > 0 && nextLen > 48) break;
+    picked.push(normalized);
+    totalLen = nextLen;
+  }
+  return picked.join('-');
+}
+
+function buildDownloadFilename(
+  ext: AudioFormat,
+  customTitle: string,
+  docTitle: string,
+  rawText: string,
+  mode: GenerationMode,
+  voiceA: string,
+  voiceB: string
+): string {
+  const baseSlug =
+    cleanTitleSlug(customTitle) || cleanTitleSlug(docTitle) || cleanTitleSlug(rawText) || 'audio-narration';
+  const voiceSuffix =
+    mode === 'dialogue' ? `${voiceA.toLowerCase()}-${voiceB.toLowerCase()}` : voiceA.toLowerCase();
+  const stem = `${baseSlug}-${voiceSuffix}`;
+  const key = `${stem}.${ext}`;
+  const seen = sessionTitleCounts.get(key) || 0;
+  sessionTitleCounts.set(key, seen + 1);
+  return seen === 0 ? key : `${stem}-${seen + 1}.${ext}`;
 }
 
 function say(msg: string) {
+  $('#statusErr').textContent = '';
   $('#status').textContent = msg;
+}
+
+function sayError(msg: string) {
+  $('#status').textContent = '';
+  $('#statusErr').textContent = msg;
 }
 
 function sayAuth(msg: string) {
@@ -164,7 +242,16 @@ function num(id: string, lo: number, hi: number, fallback: number): number {
 
 function formatAuthError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes('auth/popup-closed-by-user')) return 'Google sign-in popup was closed.';
+  if (msg.includes('auth/popup-blocked'))
+    return 'Google sign-in popup was blocked by your browser. Allow popups for this site or sign in with Email below.';
+  if (msg.includes('auth/popup-closed-by-user') || msg.includes('auth/cancelled-popup-request'))
+    return 'Google sign-in popup was closed before completing sign-in.';
+  if (msg.includes('auth/unauthorized-domain'))
+    return 'This website domain is not authorized in Firebase Console yet. Add it under Authentication > Settings > Authorized domains.';
+  if (msg.includes('auth/network-request-failed'))
+    return 'Network error while contacting Firebase. Check your internet connection and try again.';
+  if (msg.includes('auth/invalid-email')) return 'Please enter a valid email address.';
+  if (msg.includes('auth/missing-password')) return 'Please enter your password.';
   if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password'))
     return 'Incorrect email or password.';
   if (msg.includes('auth/user-not-found')) return 'No account found with that email.';
@@ -176,33 +263,241 @@ function formatAuthError(err: unknown): string {
   return msg;
 }
 
-/* ---- Routing ---- */
-const pages = ['tool', 'guides', 'about', 'contact', 'privacy', 'terms'];
+/* ---- Routing & Accessible Navigation Drawer ---- */
+const SEO_HOME_TITLE = 'Voice Studio – Free PDF, EPUB & DOCX to Audio TTS Converter';
+const SEO_HOME_DESC =
+  'Convert PDF, EPUB, Word DOCX, and Urdu or English text into natural MP3 & WAV audio. Built for blind readers, students, and creators—3,000 free chars daily.';
+const pages = ['tool', 'account', 'admin', 'guides', 'formats', 'faq', 'about', 'contact', 'privacy', 'terms'] as const;
+type PageId = (typeof pages)[number];
+
+function resolvePageId(): PageId {
+  const pathSlug = location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  if ((pages as readonly string[]).includes(pathSlug)) {
+    return pathSlug as PageId;
+  }
+  const hashSlug = location.hash.slice(1).toLowerCase();
+  if ((pages as readonly string[]).includes(hashSlug)) {
+    return hashSlug as PageId;
+  }
+  return 'tool';
+}
+
+function getPagePath(id: PageId): string {
+  return id === 'tool' ? '/' : `/${id}`;
+}
+
+function setBackgroundInert(isInert: boolean) {
+  for (const id of ['siteHeader', 'main', 'siteFooter']) {
+    const el = document.getElementById(id) as (HTMLElement & { inert?: boolean }) | null;
+    if (!el) continue;
+    if ('inert' in el) el.inert = isInert;
+    if (isInert) el.setAttribute('aria-hidden', 'true');
+    else el.removeAttribute('aria-hidden');
+  }
+}
+
+function getDrawerFocusable(): HTMLElement[] {
+  const drawer = $('#navDrawer');
+  return Array.from(
+    drawer.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((el) => !el.hidden && el.offsetParent !== null);
+}
+
+function openDrawer() {
+  const drawer = $('#navDrawer');
+  const backdrop = $('#drawerBackdrop');
+  const openBtn = $('#openDrawerBtn');
+  if (!drawer.hidden) return;
+  backdrop.hidden = false;
+  drawer.hidden = false;
+  openBtn.setAttribute('aria-expanded', 'true');
+  setBackgroundInert(true);
+  $('#closeDrawerBtn').focus();
+}
+
+function closeDrawer(restoreFocus = true) {
+  const drawer = $('#navDrawer');
+  const backdrop = $('#drawerBackdrop');
+  const openBtn = $('#openDrawerBtn');
+  if (drawer.hidden) return;
+  drawer.hidden = true;
+  backdrop.hidden = true;
+  openBtn.setAttribute('aria-expanded', 'false');
+  setBackgroundInert(false);
+  if (restoreFocus) openBtn.focus();
+}
+
+function focusActivePageHeading(section: HTMLElement) {
+  const visibleHeading = Array.from(section.querySelectorAll<HTMLElement>('h1[tabindex="-1"]')).find(
+    (h) => h.offsetParent !== null
+  );
+  (visibleHeading || $('#main')).focus();
+}
+
 function route(moveFocus: boolean) {
-  const hash = location.hash.slice(1);
-  const id = pages.includes(hash) ? hash : 'tool';
+  let id = resolvePageId();
+
+  if (authResolved) {
+    if (id === 'admin' && !isAdminActive(currentUser)) {
+      id = 'tool';
+      history.replaceState(null, '', '/');
+    } else if (id === 'account' && (!currentUser || !currentUser.emailVerified)) {
+      id = 'tool';
+      history.replaceState(null, '', '/');
+    }
+  }
+
   pages.forEach((p) => {
     $('#' + p).hidden = p !== id;
   });
-  document.querySelectorAll('.main-nav a').forEach((a) => {
-    if (a.getAttribute('href') === '#' + id) a.setAttribute('aria-current', 'page');
+  document.querySelectorAll<HTMLAnchorElement>('.drawer-nav a[data-page]').forEach((a) => {
+    if (a.dataset.page === id) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+
   const section = $('#' + id);
-  document.title = `${section.dataset.title || 'Voice Studio'} | Voice Studio`;
+  const nextTitle = id === 'tool' ? SEO_HOME_TITLE : `${section.dataset.title || 'Voice Studio'} | Voice Studio`;
+  const nextDesc = id === 'tool' ? SEO_HOME_DESC : section.dataset.description || SEO_HOME_DESC;
+  const canonicalUrl = `${window.location.origin}${getPagePath(id)}`;
+  const robotsPolicy =
+    id === 'account' || id === 'admin' ? 'noindex, nofollow' : 'index, follow, max-snippet:-1, max-image-preview:large';
+
+  document.title = nextTitle;
+  document.querySelector('meta[name="robots"]')?.setAttribute('content', robotsPolicy);
+  document.querySelector('meta[name="description"]')?.setAttribute('content', nextDesc);
+  document.querySelector('meta[property="og:title"]')?.setAttribute('content', nextTitle);
+  document.querySelector('meta[property="og:description"]')?.setAttribute('content', nextDesc);
+  document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', nextTitle);
+  document.querySelector('meta[name="twitter:description"]')?.setAttribute('content', nextDesc);
+  document.getElementById('canonicalLink')?.setAttribute('href', canonicalUrl);
+  document.getElementById('ogUrl')?.setAttribute('content', canonicalUrl);
+
+  if (id === 'admin' && isAdminActive(currentUser) && !adminDataLoaded) {
+    adminDataLoaded = true;
+    document.getElementById('adminRefreshAll')?.click();
+  }
+
   if (moveFocus) {
     window.scrollTo(0, 0);
-    $('#main').focus();
+    focusActivePageHeading(section);
   }
 }
+
+function navigateToPage(id: PageId, moveFocus = true) {
+  if (id === 'admin' && !isAdminActive(currentUser)) {
+    closeDrawer(false);
+    id = 'tool';
+  }
+  if (id === 'account' && (!currentUser || !currentUser.emailVerified)) {
+    closeDrawer(false);
+    id = 'tool';
+  }
+  const targetPath = getPagePath(id);
+  if (location.pathname !== targetPath || location.hash) {
+    history.pushState(null, '', targetPath);
+  }
+  closeDrawer(false);
+  route(moveFocus);
+}
+
+window.addEventListener('popstate', () => route(true));
 window.addEventListener('hashchange', () => route(true));
 
+document.addEventListener('keydown', (e) => {
+  const drawer = document.getElementById('navDrawer');
+  if (!drawer || drawer.hidden) return;
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeDrawer(true);
+    return;
+  }
+
+  if (e.key === 'Tab') {
+    const focusables = getDrawerFocusable();
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (e.shiftKey) {
+      if (!active || active === first || !drawer.contains(active)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (!active || active === last || !drawer.contains(active)) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
+
+$('#openDrawerBtn').onclick = () => openDrawer();
+$('#closeDrawerBtn').onclick = () => closeDrawer(true);
+$('#drawerBackdrop').onclick = () => closeDrawer(true);
+
+document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
+  link.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const page = link.dataset.page as PageId | undefined;
+    if (page && (pages as readonly string[]).includes(page)) {
+      e.preventDefault();
+      navigateToPage(page, true);
+    }
+  });
+});
+
+function renderServerHealthStatus(state: 'checking' | 'ready' | 'nokey' | 'missing404' | 'offline') {
+  const el = document.getElementById('serverHealthStatus');
+  if (!el) return;
+  el.classList.remove('status-ok', 'status-bad', 'status-mut');
+  if (state === 'checking') {
+    el.classList.add('status-mut');
+    el.textContent = 'Speech server status: Checking connection…';
+  } else if (state === 'ready') {
+    el.classList.add('status-ok');
+    el.textContent = 'Speech server status: Connected — server speech key is active and ready.';
+  } else if (state === 'nokey') {
+    el.classList.add('status-bad');
+    el.textContent =
+      'Speech server status: Server is online, but no server speech key is active yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or add your key in hosting secrets.';
+  } else if (state === 'missing404') {
+    el.classList.add('status-bad');
+    el.textContent =
+      'Speech server status: Backend API returned 404 on this URL. Re-deploy with Worker/API routes, or turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
+  } else {
+    el.classList.add('status-bad');
+    el.textContent =
+      'Speech server status: Could not verify backend right now. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 if needed.';
+  }
+}
+
 /* ---- Account & Quota UI ---- */
+function updateWorkspaceBalanceBar() {
+  const barEl = document.getElementById('workspaceBalanceText');
+  if (!barEl) return;
+  if (!currentUser || !currentUser.emailVerified) {
+    barEl.textContent = 'Checking balance…';
+    return;
+  }
+  const emailLabel = activeQuota?.email || currentUser.email || 'Verified account';
+  if (!activeQuota) {
+    barEl.textContent = isByokActive() ? `${emailLabel} · Unlimited Mode active` : `${emailLabel} · Loading balance…`;
+    return;
+  }
+  const byokNote = isByokActive() ? ' · Unlimited Mode ON' : '';
+  barEl.textContent =
+    `${emailLabel} · Free today: ${activeQuota.remainingDaily.toLocaleString()} / ` +
+    `${activeQuota.dailyLimit.toLocaleString()} chars · Credits: ${activeQuota.paidCredits.toLocaleString()}${byokNote}`;
+}
+
 function renderQuota(q: QuotaState) {
   activeQuota = q;
   $('#statDailyRemaining').textContent = `${q.remainingDaily.toLocaleString()} chars`;
   $('#statPaidCredits').textContent = `${q.paidCredits.toLocaleString()} chars`;
   $('#statTotalUsed').textContent = `${q.totalCharsUsed.toLocaleString()} chars`;
+  $('#statAccountPlan').textContent = q.plan === 'pro' ? 'Extended' : 'Free';
   const emailText = q.email || currentUser?.email || '';
   $('#userAccountMeta').textContent = emailText
     ? `${emailText} · ${q.dailyLimit.toLocaleString()} chars daily allowance`
@@ -214,11 +509,17 @@ function renderQuota(q: QuotaState) {
   $('#dailyBarLabel').textContent =
     `Daily free allowance used: ${q.dailyUsedChars.toLocaleString()} of ${q.dailyLimit.toLocaleString()} characters`;
 
+  updateWorkspaceBalanceBar();
+
+  if (typeof q.backendConfigured === 'boolean') {
+    renderServerHealthStatus(q.backendConfigured ? 'ready' : 'nokey');
+  }
+
   const notice = $('#backendNotice');
-  if (q.backendConfigured === false) {
+  if (q.backendConfigured === false && !isByokActive()) {
     notice.hidden = false;
     notice.textContent =
-      'Note: Server speech key (GEMINI_API_KEY) is not configured in environment variables yet.';
+      'Shared server allowance is currently unavailable on this deployment. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 to generate audio directly from your browser.';
   } else {
     notice.hidden = true;
     notice.textContent = '';
@@ -230,7 +531,6 @@ function renderQuota(q: QuotaState) {
 function renderWalletDoc(w: UserWalletDoc) {
   const today = new Date().toISOString().slice(0, 10);
   const usedToday = w.dailyDate === today ? w.dailyUsedChars : 0;
-  const remainingDaily = Math.max(0, w.dailyLimit - usedToday);
   // Keep higher dailyUsedChars if KV tracked usage without Firestore Service Account
   const kvUsed = activeQuota ? activeQuota.dailyUsedChars : 0;
   const mergedUsed = Math.max(usedToday, kvUsed);
@@ -241,7 +541,7 @@ function renderWalletDoc(w: UserWalletDoc) {
     email: w.email,
     dailyLimit: w.dailyLimit,
     dailyUsedChars: mergedUsed,
-    remainingDaily: mergedRemaining || remainingDaily,
+    remainingDaily: mergedRemaining,
     paidCredits: w.paidCredits,
     totalCharsUsed: Math.max(w.totalCharsUsed, activeQuota?.totalCharsUsed || 0),
     plan: w.plan,
@@ -268,16 +568,35 @@ function renderLedger(entries: LedgerEntryDoc[]) {
 }
 
 async function fetchBackendQuota(user: User) {
+  renderServerHealthStatus('checking');
   try {
     const token = await user.getIdToken();
     const res = await fetch('/api/quota', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return;
-    const data = (await res.json()) as QuotaState;
-    renderQuota(data);
+    if (res.ok) {
+      const data = (await res.json()) as QuotaState;
+      renderQuota(data);
+      return;
+    }
+    if (res.status === 404) {
+      renderServerHealthStatus('missing404');
+      return;
+    }
+    // Probe public /api/health fallback if quota failed (e.g. token refresh)
+    const healthRes = await fetch('/api/health');
+    if (healthRes.status === 404) {
+      renderServerHealthStatus('missing404');
+      return;
+    }
+    if (healthRes.ok) {
+      const h = (await healthRes.json()) as { backendConfigured?: boolean };
+      renderServerHealthStatus(h.backendConfigured ? 'ready' : 'nokey');
+      return;
+    }
+    renderServerHealthStatus('offline');
   } catch {
-    // Ignore transient quota check failure
+    renderServerHealthStatus('offline');
   }
 }
 
@@ -313,12 +632,20 @@ $('#googleSignIn').onclick = async () => {
 
 $('#authForm').onsubmit = async (e) => {
   e.preventDefault();
-  const email = $<HTMLInputElement>('#authEmail').value.trim();
-  const pass = $<HTMLInputElement>('#authPass').value;
+  const emailEl = $<HTMLInputElement>('#authEmail');
+  const passEl = $<HTMLInputElement>('#authPass');
+  const email = emailEl.value.trim();
+  const pass = passEl.value;
   const name = $<HTMLInputElement>('#authName').value.trim();
 
-  if (!email || !pass) {
-    sayAuth('Enter your email and password.');
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    sayAuth('Please enter a valid email address.');
+    emailEl.focus();
+    return;
+  }
+  if (pass.length < 6) {
+    sayAuth('Password must be at least 6 characters.');
+    passEl.focus();
     return;
   }
 
@@ -390,29 +717,35 @@ const handleSignOut = async () => {
 $('#signOutBtn').onclick = handleSignOut;
 $('#signOutVerify').onclick = handleSignOut;
 
-$('#headerAuthBtn').onclick = () => {
+function triggerHeaderOrDrawerAuth() {
+  closeDrawer(false);
   if (currentUser) {
     void handleSignOut();
     return;
   }
-  const onTool = location.hash === '#tool' || location.hash === '';
-  if (!onTool) {
-    location.hash = '#tool';
-    setTimeout(() => $('#googleSignIn').focus(), 0);
-  } else {
-    $('#authCard').scrollIntoView({ block: 'nearest' });
-    $('#googleSignIn').focus();
+  if (resolvePageId() !== 'tool') {
+    navigateToPage('tool', false);
   }
-};
+  $('#authCard').scrollIntoView({ block: 'nearest' });
+  $('#googleSignIn').focus();
+}
+
+$('#headerAuthBtn').onclick = triggerHeaderOrDrawerAuth;
+$('#drawerAuthBtn').onclick = triggerHeaderOrDrawerAuth;
 
 async function handleAuthUser(user: User | null) {
   clearFirestoreListeners();
   currentUser = user;
   activeQuota = null;
-  $('#adminCard').hidden = true;
+  verifiedAdminSession = false;
+  unmountAdminPanel();
 
   const headerUser = $('#headerUser');
   const headerAuthBtn = $('#headerAuthBtn');
+  const drawerUser = $('#drawerUser');
+  const drawerAuthBtn = $('#drawerAuthBtn');
+  const navAccountLink = $('#navAccountLink');
+  const navAdminLink = $('#navAdminLink');
 
   if (!user) {
     $('#authGate').hidden = false;
@@ -421,113 +754,805 @@ async function handleAuthUser(user: User | null) {
     headerUser.hidden = true;
     headerUser.textContent = '';
     headerAuthBtn.textContent = 'Sign in';
+    drawerUser.hidden = true;
+    drawerUser.textContent = '';
+    drawerAuthBtn.textContent = 'Sign in to Converter';
+    navAccountLink.hidden = true;
+    navAdminLink.hidden = true;
+    updateWorkspaceBalanceBar();
     updateCounts();
+    route(false);
     return;
   }
 
+  const label = user.email || user.displayName || 'Account';
   headerUser.hidden = false;
-  headerUser.textContent = user.email || user.displayName || 'Account';
+  headerUser.textContent = label;
   headerAuthBtn.textContent = 'Sign out';
+  drawerUser.hidden = false;
+  drawerUser.textContent = `Signed in as ${label}`;
+  drawerAuthBtn.textContent = 'Sign out';
 
   if (!user.emailVerified) {
     $('#authGate').hidden = true;
     $('#authVerifyBox').hidden = false;
     $('#converterWorkspace').hidden = true;
     $('#verifyEmailText').textContent = user.email || 'your email';
+    navAccountLink.hidden = true;
+    navAdminLink.hidden = true;
+    updateWorkspaceBalanceBar();
     updateCounts();
+    route(false);
     return;
   }
+
+  const adminAuthorized = await verifyStrictAdmin(user);
+  verifiedAdminSession = adminAuthorized;
+  navAccountLink.hidden = false;
+  navAdminLink.hidden = !adminAuthorized;
 
   $('#authGate').hidden = true;
   $('#authVerifyBox').hidden = true;
   $('#converterWorkspace').hidden = false;
   $('#userDisplay').textContent = user.displayName || user.email || 'Account';
   $('#userAccountMeta').textContent = user.email ? `${user.email} · 3,000 chars daily allowance` : '';
+  updateWorkspaceBalanceBar();
 
   try {
     await ensureUserAndWallet(user);
-    walletUnsub = subscribeWallet(user.uid, (w) => {
-      if (w) renderWalletDoc(w);
-    });
-    ledgerUnsub = subscribeLedger(user.uid, renderLedger);
+    walletUnsub = subscribeWallet(
+      user.uid,
+      (w) => {
+        if (w) renderWalletDoc(w);
+      },
+      () => {
+        sayAuth('Could not sync live account balance. Using server tracker.');
+      }
+    );
+    ledgerUnsub = subscribeLedger(
+      user.uid,
+      renderLedger,
+      () => {
+        // Ignore live history error silently if offline
+      }
+    );
   } catch {
-    sayAuth('Could not sync Firestore wallet. Using server quota tracker.');
+    sayAuth('Could not load account balance right now.');
+  }
+
+  if (user.displayName && !$<HTMLInputElement>('#contactName').value.trim()) {
+    $<HTMLInputElement>('#contactName').value = user.displayName;
+  }
+  if (user.email && !$<HTMLInputElement>('#contactEmail').value.trim()) {
+    $<HTMLInputElement>('#contactEmail').value = user.email;
   }
 
   await fetchBackendQuota(user);
 
-  const isAdmin = await checkIsAdmin(user);
-  $('#adminCard').hidden = !isAdmin;
+  if (adminAuthorized) {
+    mountAdminPanel();
+  }
+  route(false);
 }
 
 onAuthStateChanged(auth, (user) => {
+  authResolved = true;
   void handleAuthUser(user);
 });
 
-/* ---- Admin Panel ---- */
-$('#adminLoadUsers').onclick = async () => {
-  $('#adminMsg').textContent = 'Loading user wallets…';
-  try {
-    const wallets = await adminListWallets();
+/* ---- Admin Panel (Strictly Mounted Only for Verified Primary Admin) ---- */
+function unmountAdminPanel() {
+  adminDataLoaded = false;
+  const mount = document.getElementById('adminMount');
+  if (mount) mount.innerHTML = '';
+}
+
+function mountAdminPanel() {
+  if (!isAdminActive(currentUser)) {
+    unmountAdminPanel();
+    return;
+  }
+  const mount = $('#adminMount');
+  mount.innerHTML = `
+    <div class="card" id="adminOverviewCard">
+      <div class="account-head">
+        <div>
+          <h2>Overview</h2>
+          <p class="account-meta">Summary of active user accounts, credit balances, daily usage, and unread messages.</p>
+        </div>
+        <div class="btn-group compact-actions">
+          <button id="adminRefreshAll" type="button">Refresh All</button>
+        </div>
+      </div>
+
+      <div class="quota-metrics">
+        <div class="quota-metric">
+          <span class="quota-label">User accounts</span>
+          <strong id="adminStatWallets">—</strong>
+        </div>
+        <div class="quota-metric">
+          <span class="quota-label">Total credits available</span>
+          <strong id="adminStatCredits">—</strong>
+        </div>
+        <div class="quota-metric">
+          <span class="quota-label">Characters used today</span>
+          <strong id="adminStatDaily">—</strong>
+        </div>
+        <div class="quota-metric">
+          <span class="quota-label">Unread messages</span>
+          <strong id="adminStatUnread">—</strong>
+        </div>
+      </div>
+      <p id="adminOverviewMsg" class="hint" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="card" id="adminCard">
+      <h2>Users &amp; Credits</h2>
+      <p class="hint">Search for any user, view all registered accounts, update daily free limits, or add extra credits.</p>
+      <div class="row">
+        <div>
+          <label for="adminSearchInput">Find user by Email or Account ID</label>
+          <input id="adminSearchInput" type="text" placeholder="user@example.com or Account ID">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="adminFindBtn" type="button" class="sec">Search user</button>
+        <button id="adminLoadUsers" type="button" class="sec">Show all users</button>
+        <button id="adminLoadProfiles" type="button" class="sec">Show user profiles</button>
+      </div>
+      <div class="admin-table-wrap" id="adminTableWrap" hidden>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">Email</th>
+              <th scope="col">Account ID</th>
+              <th scope="col">Plan</th>
+              <th scope="col">Used Today</th>
+              <th scope="col">Total Used</th>
+              <th scope="col">Credits</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="adminUsersBody"></tbody>
+        </table>
+      </div>
+      <div class="admin-table-wrap" id="adminProfilesWrap" hidden>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Email</th>
+              <th scope="col">Account ID</th>
+              <th scope="col">Role</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody id="adminProfilesBody"></tbody>
+        </table>
+      </div>
+
+      <hr class="divider">
+
+      <h3>Update Credits &amp; Daily Limit</h3>
+      <div class="row">
+        <div>
+          <label for="adminUid">Selected User (Email or Account ID)</label>
+          <input id="adminUid" type="text" placeholder="Choose a user above or enter Email / ID">
+        </div>
+        <div>
+          <label for="adminAddCredits">Add or Remove Credits (characters)</label>
+          <input id="adminAddCredits" type="number" value="10000" step="1000">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="sec admin-preset-credit" data-credits="10000">+10,000</button>
+        <button type="button" class="sec admin-preset-credit" data-credits="50000">+50,000</button>
+        <button type="button" class="sec admin-preset-credit" data-credits="100000">+100,000</button>
+        <button type="button" class="sec admin-preset-credit" data-credits="0">0 (Limit / Plan only)</button>
+      </div>
+      <div class="row">
+        <div>
+          <label for="adminDailyLimit">Daily Free Limit</label>
+          <input id="adminDailyLimit" type="number" value="3000" min="0" max="1000000">
+        </div>
+        <div>
+          <label for="adminPlan">Plan</label>
+          <select id="adminPlan">
+            <option value="free">Free</option>
+            <option value="pro">Extended</option>
+          </select>
+        </div>
+      </div>
+      <label for="adminNote">Reason / Note</label>
+      <input id="adminNote" type="text" maxlength="240" placeholder="Reason for adding credits or changing limit">
+      <div class="btn-group">
+        <button id="adminApply" type="button">Save Changes</button>
+      </div>
+      <p id="adminMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
+      <p id="adminErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+    </div>
+
+    <div class="card" id="adminLedgerCard">
+      <h2>Activity History</h2>
+      <p class="hint">See recent credit changes, quota updates, and audio generations across all user accounts.</p>
+      <div class="row">
+        <div>
+          <label for="adminLedgerFilter">Filter by User or Note</label>
+          <input id="adminLedgerFilter" type="text" placeholder="Type email, user ID, or note">
+        </div>
+        <div>
+          <label for="adminLedgerType">Activity Type</label>
+          <select id="adminLedgerType">
+            <option value="all">All activity</option>
+            <option value="admin_grant">Admin updates</option>
+            <option value="credit_purchase">Credits added</option>
+            <option value="tts_usage">Audio generated</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="adminLoadLedger" type="button" class="sec">Load Recent History</button>
+      </div>
+      <p id="adminLedgerMsg" class="hint" role="status" aria-live="polite"></p>
+      <p id="adminLedgerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+      <div class="admin-table-wrap" id="adminLedgerWrap" hidden>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">User</th>
+              <th scope="col">Activity</th>
+              <th scope="col">Credits</th>
+              <th scope="col">Characters</th>
+              <th scope="col">Voice Model</th>
+              <th scope="col">Note</th>
+            </tr>
+          </thead>
+          <tbody id="adminLedgerBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="adminInboxCard">
+      <h2>Contact Messages</h2>
+      <p class="hint">Read and manage messages sent by visitors from the Contact page.</p>
+      <div class="btn-group">
+        <button id="adminLoadInbox" type="button" class="sec">Load Messages</button>
+        <button id="adminUnreadOnly" type="button" class="sec" aria-pressed="false">Show unread only</button>
+      </div>
+      <p id="adminInboxMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
+      <p id="adminInboxErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+      <ul class="inbox-list" id="adminInboxList"></ul>
+    </div>
+
+    <div class="card" id="adminHealthCard">
+      <h2>Server Status</h2>
+      <p class="hint" id="adminSessionIdentity"></p>
+      <p class="hint" id="adminSystemStatus" role="status" aria-live="polite">Press Check Server Status to verify that speech generation is ready.</p>
+      <div class="btn-group">
+        <button id="adminCheckHealth" type="button" class="sec">Check Server Status</button>
+      </div>
+    </div>
+  `;
+
+  let cachedLedger: LedgerEntryDoc[] = [];
+  let cachedInbox: ContactMessageDoc[] = [];
+  let unreadOnlyFilter = false;
+  let pendingDeleteId: string | null = null;
+
+  const formatActivityLabel = (type: LedgerEntryDoc['type']): string => {
+    if (type === 'credit_purchase') return 'Credits added';
+    if (type === 'tts_usage') return 'Audio generated';
+    return 'Admin update';
+  };
+
+  $('#adminSessionIdentity').textContent =
+    `Signed in as verified primary admin (${currentUser?.email || ''}). Access is restricted strictly to this account.`;
+
+  const formatUiError = (err: unknown, fallback: string): string => {
+    const raw = err instanceof Error ? err.message : String(err || '');
+    if (raw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw) as { error?: string };
+        if (parsed.error) return parsed.error;
+      } catch {
+        // Fall through
+      }
+    }
+    return raw || fallback;
+  };
+  const setAdminStatus = (msg: string) => {
+    $('#adminErr').textContent = '';
+    $('#adminMsg').textContent = msg;
+  };
+  const setAdminError = (msg: string) => {
+    $('#adminMsg').textContent = '';
+    $('#adminErr').textContent = msg;
+  };
+
+  mount.querySelectorAll<HTMLButtonElement>('.admin-preset-credit').forEach((btn) => {
+    btn.onclick = () => {
+      const val = btn.dataset.credits || '0';
+      $<HTMLInputElement>('#adminAddCredits').value = val;
+      setAdminStatus(`Credit amount set to ${Number(val).toLocaleString()} characters.`);
+    };
+  });
+
+  const updateWalletOverview = (wallets: Array<{ docId: string; wallet: UserWalletDoc }>) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const totalCredits = wallets.reduce((acc, item) => acc + (item.wallet.paidCredits || 0), 0);
+    const totalDaily = wallets.reduce(
+      (acc, item) => acc + (item.wallet.dailyDate === today ? item.wallet.dailyUsedChars || 0 : 0),
+      0
+    );
+    $('#adminStatWallets').textContent = wallets.length.toLocaleString();
+    $('#adminStatCredits').textContent = totalCredits.toLocaleString();
+    $('#adminStatDaily').textContent = totalDaily.toLocaleString();
+  };
+
+  const renderLedgerTable = () => {
+    const filterText = $<HTMLInputElement>('#adminLedgerFilter').value.trim().toLowerCase();
+    const typeFilter = $<HTMLSelectElement>('#adminLedgerType').value;
+    const filtered = cachedLedger.filter((entry) => {
+      if (typeFilter !== 'all' && entry.type !== typeFilter) return false;
+      if (!filterText) return true;
+      return (
+        entry.uid.toLowerCase().includes(filterText) ||
+        entry.note.toLowerCase().includes(filterText) ||
+        entry.model.toLowerCase().includes(filterText)
+      );
+    });
+
+    const tbody = $('#adminLedgerBody');
+    tbody.innerHTML = '';
+    for (const e of filtered) {
+      const tr = document.createElement('tr');
+      const tdTime = document.createElement('td');
+      tdTime.textContent = e.createdAt?.toDate?.()?.toLocaleString() || 'Recent';
+      const tdUid = document.createElement('td');
+      tdUid.textContent = e.uid;
+      const tdType = document.createElement('td');
+      tdType.textContent = formatActivityLabel(e.type);
+      const tdDelta = document.createElement('td');
+      tdDelta.textContent = `${e.creditsDelta > 0 ? '+' : ''}${e.creditsDelta.toLocaleString()}`;
+      const tdChars = document.createElement('td');
+      tdChars.textContent = e.chars.toLocaleString();
+      const tdModel = document.createElement('td');
+      tdModel.textContent = e.model === 'admin-portal' ? 'Admin Panel' : e.model || '—';
+      const tdNote = document.createElement('td');
+      tdNote.textContent = e.note || '—';
+      tr.append(tdTime, tdUid, tdType, tdDelta, tdChars, tdModel, tdNote);
+      tbody.appendChild(tr);
+    }
+    $('#adminLedgerWrap').hidden = filtered.length === 0;
+    $('#adminLedgerMsg').textContent = `Showing ${filtered.length} of ${cachedLedger.length} recent record(s).`;
+  };
+
+  const loadLedger = async () => {
+    $('#adminLedgerErr').textContent = '';
+    $('#adminLedgerMsg').textContent = 'Loading recent history…';
+    try {
+      cachedLedger = await adminListRecentLedger();
+      renderLedgerTable();
+    } catch (err) {
+      $('#adminLedgerMsg').textContent = '';
+      $('#adminLedgerErr').textContent = formatUiError(err, 'Could not load activity history.');
+    }
+  };
+
+  const renderWalletRows = (wallets: Array<{ docId: string; wallet: UserWalletDoc }>, focusGrantDocId?: string) => {
     const tbody = $('#adminUsersBody');
     tbody.innerHTML = '';
-    for (const w of wallets) {
+    for (const { docId, wallet: w } of wallets) {
       const tr = document.createElement('tr');
 
       const tdEmail = document.createElement('td');
       tdEmail.textContent = w.email;
+      const tdId = document.createElement('td');
+      tdId.textContent = docId;
       const tdPlan = document.createElement('td');
-      tdPlan.textContent = w.plan;
+      tdPlan.textContent = w.plan === 'pro' ? 'Extended' : 'Free';
       const tdDaily = document.createElement('td');
-      tdDaily.textContent = `${w.dailyUsedChars}/${w.dailyLimit}`;
+      tdDaily.textContent = `${w.dailyUsedChars.toLocaleString()}/${w.dailyLimit.toLocaleString()}`;
+      const tdLifetime = document.createElement('td');
+      tdLifetime.textContent = (w.totalCharsUsed || 0).toLocaleString();
       const tdPaid = document.createElement('td');
       tdPaid.textContent = w.paidCredits.toLocaleString();
+
+      const tdAct = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'admin-row-actions';
+
+      const selBtn = document.createElement('button');
+      selBtn.type = 'button';
+      selBtn.className = 'sec';
+      selBtn.textContent = 'Select';
+      selBtn.setAttribute('aria-label', `Select account for ${w.email}`);
+      selBtn.onclick = () => {
+        $<HTMLInputElement>('#adminUid').value = docId;
+        $<HTMLInputElement>('#adminDailyLimit').value = String(w.dailyLimit);
+        $<HTMLSelectElement>('#adminPlan').value = w.plan;
+        setAdminStatus(`Selected ${w.email}. Current credits: ${w.paidCredits.toLocaleString()}.`);
+        $('#adminAddCredits').focus();
+      };
+
+      const quickGrantBtn = document.createElement('button');
+      quickGrantBtn.type = 'button';
+      quickGrantBtn.className = 'sec';
+      quickGrantBtn.textContent = '+10k';
+      quickGrantBtn.setAttribute('aria-label', `Add 10,000 credits to ${w.email}`);
+      quickGrantBtn.dataset.grantDoc = docId;
+      quickGrantBtn.onclick = async () => {
+        setAdminStatus(`Adding 10,000 credits to ${w.email}…`);
+        try {
+          const updated = await adminGrantCredits(
+            docId,
+            10000,
+            w.dailyLimit,
+            w.plan,
+            'Added 10,000 credits from Admin Panel'
+          );
+          setAdminStatus(`Added 10,000 credits to ${updated.email}. New balance: ${updated.paidCredits.toLocaleString()}.`);
+          const refreshed = await adminListWallets();
+          updateWalletOverview(refreshed);
+          renderWalletRows(refreshed, docId);
+          if (cachedLedger.length) await loadLedger();
+          if (updated.uid === currentUser?.uid || updated.email === currentUser?.email) {
+            await fetchBackendQuota(currentUser);
+          }
+        } catch (err) {
+          setAdminError(formatUiError(err, 'Could not add credits.'));
+        }
+      };
+
+      const ledgerBtn = document.createElement('button');
+      ledgerBtn.type = 'button';
+      ledgerBtn.className = 'sec';
+      ledgerBtn.textContent = 'History';
+      ledgerBtn.setAttribute('aria-label', `View activity history for ${w.email}`);
+      ledgerBtn.onclick = async () => {
+        $<HTMLInputElement>('#adminLedgerFilter').value = docId;
+        $<HTMLSelectElement>('#adminLedgerType').value = 'all';
+        if (!cachedLedger.length) await loadLedger();
+        else renderLedgerTable();
+        $('#adminLedgerFilter').focus();
+      };
+
+      wrap.append(selBtn, quickGrantBtn, ledgerBtn);
+      tdAct.appendChild(wrap);
+
+      tr.append(tdEmail, tdId, tdPlan, tdDaily, tdLifetime, tdPaid, tdAct);
+      tbody.appendChild(tr);
+
+      if (focusGrantDocId && focusGrantDocId === docId) {
+        quickGrantBtn.focus();
+      }
+    }
+    $('#adminTableWrap').hidden = wallets.length === 0;
+  };
+
+  const renderProfilesRows = (profiles: UserProfileDoc[]) => {
+    const tbody = $('#adminProfilesBody');
+    tbody.innerHTML = '';
+    for (const u of profiles) {
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td');
+      tdName.textContent = u.displayName || '—';
+      const tdEmail = document.createElement('td');
+      tdEmail.textContent = u.email;
+      const tdUid = document.createElement('td');
+      tdUid.textContent = u.uid;
+      const tdRole = document.createElement('td');
+      tdRole.textContent = u.role;
 
       const tdAct = document.createElement('td');
       const selBtn = document.createElement('button');
       selBtn.type = 'button';
       selBtn.className = 'sec';
       selBtn.textContent = 'Select';
+      selBtn.setAttribute('aria-label', `Select user ${u.email}`);
       selBtn.onclick = () => {
-        $<HTMLInputElement>('#adminUid').value = w.uid;
-        $<HTMLInputElement>('#adminDailyLimit').value = String(w.dailyLimit);
-        $<HTMLSelectElement>('#adminPlan').value = w.plan;
-        $('#adminMsg').textContent = `Selected ${w.email} (${w.uid}).`;
+        $<HTMLInputElement>('#adminUid').value = u.uid;
+        setAdminStatus(`Selected user ${u.email}.`);
+        $('#adminAddCredits').focus();
       };
       tdAct.appendChild(selBtn);
-
-      tr.append(tdEmail, tdPlan, tdDaily, tdPaid, tdAct);
+      tr.append(tdName, tdEmail, tdUid, tdRole, tdAct);
       tbody.appendChild(tr);
     }
-    $('#adminTableWrap').hidden = false;
-    $('#adminMsg').textContent = `Loaded ${wallets.length} user wallet(s).`;
-  } catch (err) {
-    $('#adminMsg').textContent = err instanceof Error ? err.message : 'Failed to load wallets.';
-  }
-};
+    $('#adminProfilesWrap').hidden = profiles.length === 0;
+  };
 
-$('#adminApply').onclick = async () => {
-  const uid = $<HTMLInputElement>('#adminUid').value.trim();
-  const addCredits = parseInt($<HTMLInputElement>('#adminAddCredits').value, 10) || 0;
-  const dailyLimit = parseInt($<HTMLInputElement>('#adminDailyLimit').value, 10) || 3000;
-  const plan = $<HTMLSelectElement>('#adminPlan').value === 'pro' ? 'pro' : 'free';
-  const note = $<HTMLInputElement>('#adminNote').value;
-
-  if (!uid) {
-    $('#adminMsg').textContent = 'Select or paste a Target User UID first.';
-    return;
-  }
-  $('#adminMsg').textContent = 'Updating wallet and writing ledger entry…';
-  try {
-    await adminGrantCredits(uid, addCredits, dailyLimit, plan, note);
-    $('#adminMsg').textContent = `Updated ${uid} (${addCredits >= 0 ? '+' : ''}${addCredits.toLocaleString()} credits).`;
-    if (uid === currentUser?.uid) {
-      await fetchBackendQuota(currentUser);
+  $('#adminFindBtn').onclick = async () => {
+    const queryVal = $<HTMLInputElement>('#adminSearchInput').value.trim();
+    if (!queryVal) {
+      setAdminError('Enter an email address or account ID to search.');
+      $('#adminSearchInput').focus();
+      return;
     }
-  } catch (err) {
-    $('#adminMsg').textContent = err instanceof Error ? err.message : 'Update failed.';
-  }
-};
+    setAdminStatus(`Searching for ${queryVal}…`);
+    try {
+      const found = await adminFindWallet(queryVal);
+      if (!found) {
+        renderWalletRows([]);
+        $<HTMLInputElement>('#adminUid').value = queryVal;
+        setAdminStatus(
+          queryVal.includes('@')
+            ? `No existing account for ${queryVal}. Target field is filled if you want to set it up.`
+            : `No user found with ID ${queryVal}.`
+        );
+        return;
+      }
+      renderWalletRows([found]);
+      $<HTMLInputElement>('#adminUid').value = found.docId;
+      $<HTMLInputElement>('#adminDailyLimit').value = String(found.wallet.dailyLimit);
+      $<HTMLSelectElement>('#adminPlan').value = found.wallet.plan;
+      setAdminStatus(`Found account for ${found.wallet.email}.`);
+    } catch (err) {
+      setAdminError(formatUiError(err, 'Search failed.'));
+    }
+  };
+
+  $('#adminLoadUsers').onclick = async () => {
+    setAdminStatus('Loading user accounts…');
+    try {
+      const wallets = await adminListWallets();
+      updateWalletOverview(wallets);
+      renderWalletRows(wallets);
+      setAdminStatus(`Loaded ${wallets.length} user account(s).`);
+    } catch (err) {
+      setAdminError(formatUiError(err, 'Could not load user accounts.'));
+    }
+  };
+
+  $('#adminLoadProfiles').onclick = async () => {
+    setAdminStatus('Loading user profiles…');
+    try {
+      const profiles = await adminListUsers();
+      renderProfilesRows(profiles);
+      setAdminStatus(`Loaded ${profiles.length} user profile(s).`);
+    } catch (err) {
+      setAdminError(formatUiError(err, 'Could not load user profiles.'));
+    }
+  };
+
+  $('#adminApply').onclick = async () => {
+    const target = $<HTMLInputElement>('#adminUid').value.trim();
+    const addCredits = parseInt($<HTMLInputElement>('#adminAddCredits').value, 10) || 0;
+    const parsedLimit = parseInt($<HTMLInputElement>('#adminDailyLimit').value, 10);
+    const dailyLimit = Number.isNaN(parsedLimit) ? 3000 : Math.max(0, parsedLimit);
+    const plan = $<HTMLSelectElement>('#adminPlan').value === 'pro' ? 'pro' : 'free';
+    const note = $<HTMLInputElement>('#adminNote').value;
+
+    if (!target) {
+      setAdminError('Choose or enter a user email or account ID first.');
+      $('#adminUid').focus();
+      return;
+    }
+    setAdminStatus('Saving changes…');
+    try {
+      const updated = await adminGrantCredits(target, addCredits, dailyLimit, plan, note);
+      setAdminStatus(
+        `Saved for ${updated.email}: Credits ${updated.paidCredits.toLocaleString()}, Daily limit ${updated.dailyLimit.toLocaleString()}, Plan ${updated.plan === 'pro' ? 'Extended' : 'Free'}.`
+      );
+      $('#adminMsg').focus();
+      const wallets = await adminListWallets();
+      updateWalletOverview(wallets);
+      renderWalletRows(wallets);
+      await loadLedger();
+      if (updated.uid === currentUser?.uid || updated.email === currentUser?.email) {
+        await fetchBackendQuota(currentUser);
+      }
+    } catch (err) {
+      setAdminError(formatUiError(err, 'Could not save changes.'));
+    }
+  };
+
+  $('#adminLoadLedger').onclick = () => {
+    void loadLedger();
+  };
+  $('#adminLedgerFilter').addEventListener('input', () => {
+    if (cachedLedger.length) renderLedgerTable();
+  });
+  $('#adminLedgerType').addEventListener('change', () => {
+    if (cachedLedger.length) renderLedgerTable();
+  });
+
+  const setInboxStatus = (msg: string) => {
+    $('#adminInboxErr').textContent = '';
+    $('#adminInboxMsg').textContent = msg;
+  };
+  const setInboxError = (msg: string) => {
+    $('#adminInboxMsg').textContent = '';
+    $('#adminInboxErr').textContent = msg;
+  };
+
+  type InboxFocusTarget =
+    | { kind: 'toggle'; id: string }
+    | { kind: 'confirm'; id: string }
+    | { kind: 'delete'; id: string }
+    | { kind: 'status' };
+
+  const renderInbox = (focusTarget?: InboxFocusTarget) => {
+    const unreadCount = cachedInbox.filter((m) => m.status === 'unread').length;
+    $('#adminStatUnread').textContent = unreadCount.toLocaleString();
+
+    const visible = unreadOnlyFilter ? cachedInbox.filter((m) => m.status === 'unread') : cachedInbox;
+    const ul = $('#adminInboxList');
+    ul.innerHTML = '';
+    if (!visible.length) {
+      const li = document.createElement('li');
+      li.className = 'hint';
+      li.textContent = unreadOnlyFilter ? 'No unread messages.' : 'No contact messages found.';
+      ul.appendChild(li);
+      if (focusTarget?.kind === 'status') $('#adminInboxMsg').focus();
+      return;
+    }
+
+    for (const m of visible) {
+      const li = document.createElement('li');
+      li.className = 'inbox-item';
+
+      const heading = document.createElement('strong');
+      heading.textContent = `[${m.status === 'unread' ? 'UNREAD' : 'READ'}] ${m.subject}`;
+
+      const meta = document.createElement('div');
+      meta.className = 'inbox-meta';
+      const when = m.createdAt?.toDate?.()?.toLocaleString() || 'Recent';
+      meta.textContent = `From: ${m.name} (${m.email}) · ${when}`;
+
+      const body = document.createElement('p');
+      body.className = 'inbox-body';
+      body.textContent = m.message;
+
+      const actions = document.createElement('div');
+      actions.className = 'btn-group';
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'sec';
+      const nextStatus = m.status === 'unread' ? 'read' : 'unread';
+      toggleBtn.textContent = m.status === 'unread' ? 'Mark as read' : 'Mark as unread';
+      toggleBtn.setAttribute('aria-label', `${toggleBtn.textContent} message from ${m.name}`);
+      toggleBtn.onclick = async () => {
+        try {
+          await adminSetContactMessageStatus(m.id, nextStatus);
+          cachedInbox = await adminListContactMessages();
+          renderInbox({ kind: 'toggle', id: m.id });
+          setInboxStatus(`Marked message from ${m.name} as ${nextStatus}.`);
+        } catch (err) {
+          setInboxError(formatUiError(err, 'Could not update message status.'));
+        }
+      };
+
+      if (pendingDeleteId === m.id) {
+        const confirmBtn = document.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.className = 'dng';
+        confirmBtn.textContent = 'Confirm delete';
+        confirmBtn.setAttribute('aria-label', `Confirm delete message from ${m.name}`);
+        confirmBtn.onclick = async () => {
+          try {
+            pendingDeleteId = null;
+            await adminDeleteContactMessage(m.id);
+            cachedInbox = await adminListContactMessages();
+            setInboxStatus(`Deleted message from ${m.name}.`);
+            renderInbox({ kind: 'status' });
+          } catch (err) {
+            setInboxError(formatUiError(err, 'Could not delete message.'));
+          }
+        };
+
+        const cancelDelBtn = document.createElement('button');
+        cancelDelBtn.type = 'button';
+        cancelDelBtn.className = 'sec';
+        cancelDelBtn.textContent = 'Cancel';
+        cancelDelBtn.onclick = () => {
+          pendingDeleteId = null;
+          renderInbox({ kind: 'delete', id: m.id });
+        };
+
+        actions.append(toggleBtn, confirmBtn, cancelDelBtn);
+        li.append(heading, meta, body, actions);
+        ul.appendChild(li);
+
+        if (focusTarget?.kind === 'confirm' && focusTarget.id === m.id) confirmBtn.focus();
+        else if (focusTarget?.kind === 'toggle' && focusTarget.id === m.id) toggleBtn.focus();
+      } else {
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'dng';
+        delBtn.textContent = 'Delete';
+        delBtn.setAttribute('aria-label', `Delete message from ${m.name}`);
+        delBtn.onclick = () => {
+          pendingDeleteId = m.id;
+          renderInbox({ kind: 'confirm', id: m.id });
+        };
+        actions.append(toggleBtn, delBtn);
+        li.append(heading, meta, body, actions);
+        ul.appendChild(li);
+
+        if (focusTarget?.kind === 'delete' && focusTarget.id === m.id) delBtn.focus();
+        else if (focusTarget?.kind === 'toggle' && focusTarget.id === m.id) toggleBtn.focus();
+      }
+    }
+
+    if (focusTarget?.kind === 'status') {
+      $('#adminInboxMsg').focus();
+    }
+  };
+
+  const loadInbox = async () => {
+    setInboxStatus('Loading contact messages…');
+    try {
+      cachedInbox = await adminListContactMessages();
+      renderInbox();
+      const unreadCount = cachedInbox.filter((m) => m.status === 'unread').length;
+      setInboxStatus(`Loaded ${cachedInbox.length} message(s) (${unreadCount} unread).`);
+    } catch (err) {
+      setInboxError(formatUiError(err, 'Could not load contact messages.'));
+    }
+  };
+
+  $('#adminLoadInbox').onclick = () => {
+    void loadInbox();
+  };
+
+  $('#adminUnreadOnly').onclick = () => {
+    unreadOnlyFilter = !unreadOnlyFilter;
+    const btn = $('#adminUnreadOnly');
+    btn.setAttribute('aria-pressed', String(unreadOnlyFilter));
+    btn.textContent = unreadOnlyFilter ? 'Show all messages' : 'Show unread only';
+    renderInbox();
+  };
+
+  const checkHealth = async () => {
+    const statusEl = $('#adminSystemStatus');
+    statusEl.textContent = 'Checking server status…';
+    try {
+      const res = await fetch('/api/health');
+      if (res.status === 404) {
+        statusEl.textContent = 'Speech server route was not found on this preview URL.';
+        return;
+      }
+      if (!res.ok) {
+        statusEl.textContent = `Server returned status code ${res.status}.`;
+        return;
+      }
+      const data = (await res.json()) as { backendConfigured?: boolean; dailyLimit?: number };
+      statusEl.textContent = data.backendConfigured
+        ? `Speech server is active and ready. Default daily free allowance: ${(data.dailyLimit || 3000).toLocaleString()} characters.`
+        : 'Server is online, but the shared speech key is not configured on this host.';
+    } catch {
+      statusEl.textContent = 'Could not check server status right now.';
+    }
+  };
+
+  $('#adminCheckHealth').onclick = () => {
+    void checkHealth();
+  };
+
+  $('#adminRefreshAll').onclick = async () => {
+    $('#adminOverviewMsg').textContent = 'Loading admin overview…';
+    try {
+      const [wallets, ledger, inbox] = await Promise.all([
+        adminListWallets(),
+        adminListRecentLedger(),
+        adminListContactMessages(),
+      ]);
+      updateWalletOverview(wallets);
+      renderWalletRows(wallets);
+      cachedLedger = ledger;
+      renderLedgerTable();
+      cachedInbox = inbox;
+      renderInbox();
+      await checkHealth();
+      $('#adminOverviewMsg').textContent = 'All admin sections updated.';
+    } catch (err) {
+      $('#adminOverviewMsg').textContent = formatUiError(err, 'Some sections could not be loaded.');
+    }
+  };
+}
 
 /* ---- Settings & Counts ---- */
 function populateSelects() {
@@ -560,9 +1585,21 @@ function syncOptionVisibility() {
   const isDialogue = cfg.mode === 'dialogue';
   $('#voiceBWrap').hidden = !isDialogue;
   $('#dialogueHint').hidden = !isDialogue;
+  $('#sampleSingle').hidden = isDialogue;
   $('#sampleDialogue').hidden = !isDialogue;
   $('#voiceLabel').textContent = isDialogue ? 'Speaker A voice' : 'Voice';
   $('#mp3QualityWrap').hidden = cfg.format !== 'mp3';
+}
+
+function syncByokUi() {
+  $('#byokWrap').hidden = !byokEnabled;
+  if (isByokActive()) {
+    $('#byokSummary').textContent = 'Own Gemini API Key (Unlimited Mode active)';
+  } else if (byokEnabled) {
+    $('#byokSummary').textContent = 'Own Gemini API Key (enter key to activate Unlimited Mode)';
+  } else {
+    $('#byokSummary').textContent = 'Own Gemini API Key (optional Unlimited Mode)';
+  }
 }
 
 function updateCounts() {
@@ -575,7 +1612,9 @@ function updateCounts() {
   }
   const estMins = Math.max(1, Math.round(stats.estMinutes));
   let quotaMsg = '';
-  if (activeQuota) {
+  if (isByokActive()) {
+    quotaMsg = ' Unlimited Mode active (using your own browser-saved Gemini API key).';
+  } else if (activeQuota) {
     const available = activeQuota.remainingDaily + activeQuota.paidCredits;
     quotaMsg =
       stats.chars <= available
@@ -602,8 +1641,60 @@ function bindSettings() {
   $<HTMLSelectElement>('#mp3Kbps').value = String(cfg.mp3Kbps);
   $<HTMLInputElement>('#cleanDocs').checked = cfg.cleanDocs;
   $<HTMLSelectElement>('#speed').value = String(cfg.speed);
+  $<HTMLInputElement>('#byokEnabled').checked = byokEnabled;
+  $<HTMLInputElement>('#byokKey').value = byokKey;
 
   const saveCfg = () => store.set('vs.cfg', cfg);
+
+  $('#byokEnabled').addEventListener('change', (e) => {
+    byokEnabled = (e.target as HTMLInputElement).checked;
+    store.set('vs.byokEnabled', byokEnabled);
+    syncByokUi();
+    updateWorkspaceBalanceBar();
+    updateCounts();
+    if (byokEnabled) {
+      $('#byokStatus').textContent = byokKey.trim()
+        ? 'Unlimited Mode enabled using your browser-saved Gemini API key.'
+        : 'Paste your free Gemini API key below to activate Unlimited Mode.';
+      if (!byokKey.trim()) $('#byokKey').focus();
+    } else {
+      $('#byokStatus').textContent = 'Switched back to built-in Voice Studio quota (3,000 characters/day).';
+    }
+  });
+
+  $('#byokKey').addEventListener('input', (e) => {
+    byokKey = (e.target as HTMLInputElement).value.trim();
+    store.set('vs.byokKey', byokKey);
+    syncByokUi();
+    updateWorkspaceBalanceBar();
+    updateCounts();
+    $('#byokStatus').textContent = byokKey
+      ? 'API key saved locally in this browser.'
+      : 'API key cleared. Built-in quota will be used unless a key is entered.';
+  });
+
+  $('#byokToggleVis').addEventListener('click', () => {
+    const input = $<HTMLInputElement>('#byokKey');
+    const btn = $('#byokToggleVis');
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(show));
+    btn.textContent = show ? 'Hide key' : 'Show key';
+  });
+
+  $('#byokClear').addEventListener('click', () => {
+    byokKey = '';
+    byokEnabled = false;
+    store.set('vs.byokKey', '');
+    store.set('vs.byokEnabled', false);
+    $<HTMLInputElement>('#byokKey').value = '';
+    $<HTMLInputElement>('#byokEnabled').checked = false;
+    syncByokUi();
+    updateWorkspaceBalanceBar();
+    updateCounts();
+    $('#byokStatus').textContent = 'Saved API key removed from browser storage.';
+    $('#byokEnabled').focus();
+  });
 
   $('#model').addEventListener('change', (e) => {
     cfg.model = (e.target as HTMLSelectElement).value;
@@ -661,6 +1752,7 @@ function bindSettings() {
 
   $('#text').addEventListener('input', updateCounts);
   syncOptionVisibility();
+  syncByokUi();
   updateCounts();
 }
 
@@ -694,7 +1786,8 @@ function drawDict() {
     toggle.onchange = () => {
       dictRules[idx].enabled = toggle.checked;
       store.set('vs.dict', dictRules);
-      drawDict();
+      const countNow = dictRules.filter((r) => r.enabled).length;
+      $('#dictSummary').textContent = `Pronunciation dictionary (${countNow} active rule${countNow === 1 ? '' : 's'})`;
     };
     toggleLabel.appendChild(toggle);
     toggleLabel.appendChild(document.createTextNode('Active'));
@@ -709,6 +1802,9 @@ function drawDict() {
       store.set('vs.dict', dictRules);
       drawDict();
       $('#dictMsg').textContent = 'Rule removed.';
+      const nextRemove = ul.querySelector<HTMLButtonElement>('button.sec');
+      if (nextRemove) nextRemove.focus();
+      else $('#dictFind').focus();
     };
 
     actions.appendChild(toggleLabel);
@@ -753,7 +1849,7 @@ $('#presetDict').onclick = () => {
     { find: 'i.e.', replace: 'that is', wholeWord: false, enabled: true },
     { find: 'etc.', replace: 'et cetera', wholeWord: false, enabled: true },
     { find: 'vs.', replace: 'versus', wholeWord: false, enabled: true },
-    { find: 'JieShuo', replace: 'Jee Shwo', wholeWord: true, enabled: true },
+    { find: 'Jieshuo', replace: 'Jay-shwoh', wholeWord: true, enabled: true },
   ];
   let added = 0;
   for (const p of presets) {
@@ -774,6 +1870,85 @@ type ServerTtsResult =
   | { kind: 'ok'; d: InlineAudioData; quota?: QuotaState }
   | { kind: 'abort' | 'network' | 'auth' | 'quota' | 'bad' | 'retry'; msg: string };
 
+const workingByokModelMap = new Map<string, string>();
+
+async function callByokTts(
+  model: string,
+  voice: string,
+  style: string,
+  text: string,
+  userApiKey: string,
+  signal?: AbortSignal
+): Promise<ServerTtsResult> {
+  const cachedModel = workingByokModelMap.get(model);
+  const candidates = getModelFallbackOrder(cachedModel || model);
+  let lastStatus = 0;
+  let lastRawText = '';
+
+  for (const candidateModel of candidates) {
+    let res: Response;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': userApiKey,
+        },
+        body: JSON.stringify(buildBody(candidateModel, voice, style, text)),
+        signal,
+      });
+    } catch (e) {
+      const name = e instanceof Error ? e.name : '';
+      return {
+        kind: name === 'AbortError' ? 'abort' : 'network',
+        msg: name === 'AbortError' ? 'Cancelled.' : 'Network error reaching Google Gemini API.',
+      };
+    }
+
+    lastStatus = res.status;
+    lastRawText = await res.text();
+
+    if (res.ok) {
+      try {
+        const parsed = JSON.parse(lastRawText) as {
+          candidates?: Array<{ content?: { parts?: Array<{ inlineData?: InlineAudioData }> } }>;
+        };
+        const parts = parsed.candidates?.[0]?.content?.parts || [];
+        const inlineAudio = parts.map((p) => p.inlineData).find((d) => d && d.data);
+        if (!inlineAudio) {
+          return { kind: 'bad', msg: 'No audio returned from your Gemini key. Try adjusting text or style.' };
+        }
+        workingByokModelMap.set(model, candidateModel);
+        return { kind: 'ok', d: inlineAudio };
+      } catch {
+        return { kind: 'retry', msg: 'Could not parse audio response from Gemini.' };
+      }
+    }
+
+    // Automatically fall back to next compatible Gemini TTS model on 404 model-not-found
+    if (res.status === 404) {
+      continue;
+    }
+
+    const info = classify(res.status, lastRawText);
+    if (info.kind === 'badkey') {
+      return { kind: 'bad', msg: 'Your personal Gemini API key appears invalid or lacks permission.' };
+    }
+    if (info.kind === 'minute' || info.kind === 'day') {
+      return { kind: 'retry', msg: 'Your personal Gemini API key hit a temporary rate limit. Retrying…' };
+    }
+    if (info.kind === 'bad') {
+      return { kind: 'bad', msg: `Gemini API rejected the request (${res.status}).` };
+    }
+    return { kind: 'retry', msg: `Gemini API temporary error (${res.status}).` };
+  }
+
+  return {
+    kind: 'bad',
+    msg: `No compatible Gemini TTS speech model accepted this API key (HTTP ${lastStatus || 404}). Enable the Generative Language API on your Google AI Studio key or select Gemini 2.5 Flash TTS.`,
+  };
+}
+
 async function callServerTts(
   model: string,
   voice: string,
@@ -781,6 +1956,10 @@ async function callServerTts(
   text: string,
   signal?: AbortSignal
 ): Promise<ServerTtsResult> {
+  if (isByokActive()) {
+    return callByokTts(model, voice, style, text, byokKey.trim(), signal);
+  }
+
   if (!currentUser || !currentUser.emailVerified) {
     return { kind: 'auth', msg: 'Please sign in and verify your email first.' };
   }
@@ -828,6 +2007,19 @@ async function callServerTts(
     return { kind: 'ok', d: data.audio, quota: data.quota };
   }
 
+  if (res.status === 404) {
+    if (data.code === 'UPSTREAM_MODEL_404') {
+      return {
+        kind: 'bad',
+        msg: 'The selected Gemini speech model was unavailable upstream (404). Please select Gemini 2.5 Flash TTS and try again.',
+      };
+    }
+    return {
+      kind: 'bad',
+      msg: 'The speech endpoint returned 404 on this host. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 to generate audio right away.',
+    };
+  }
+
   const msg = data.error || `Server error (${res.status}).`;
   if (res.status === 401 || res.status === 403) return { kind: 'auth', msg };
   if (res.status === 429) {
@@ -849,6 +2041,7 @@ function ui() {
   $<HTMLButtonElement>('#clear').disabled = busy;
   $<HTMLButtonElement>('#paste').disabled = busy;
   $<HTMLButtonElement>('#load').disabled = busy;
+  $<HTMLButtonElement>('#sampleSingle').disabled = busy;
   $<HTMLButtonElement>('#sampleDialogue').disabled = busy;
 
   $<HTMLSelectElement>('#model').disabled = running;
@@ -866,7 +2059,7 @@ function ui() {
 
 function fail(m: string) {
   running = false;
-  say(m + (job ? ` ${job.done} of ${job.items.length} parts are done. You can press Resume.` : ''));
+  sayError(m + (job ? ` ${job.done} of ${job.items.length} parts are done. You can press Resume.` : ''));
   ui();
 }
 
@@ -877,8 +2070,10 @@ async function finishOutput(currentJob: GenerationJob) {
   if (currentJob.format === 'mp3') {
     say('Encoding MP3 audio… please wait.');
     progEl.value = 0;
+    progEl.setAttribute('aria-valuetext', 'Encoding MP3 0 percent');
     blob = await encodeMp3Blob(currentJob.parts, currentJob.rate, currentJob.sil, currentJob.mp3Kbps, (pct) => {
       progEl.value = pct;
+      progEl.setAttribute('aria-valuetext', `Encoding MP3 ${pct} percent`);
     });
   } else {
     blob = wavBlob(currentJob.parts, currentJob.rate, currentJob.sil);
@@ -894,7 +2089,15 @@ async function finishOutput(currentJob: GenerationJob) {
 
   const dl = $<HTMLAnchorElement>('#dl');
   lastBlob = blob;
-  lastName = makeFilename(currentJob.format);
+  lastName = buildDownloadFilename(
+    currentJob.format,
+    $<HTMLInputElement>('#audioTitle').value,
+    loadedDocTitle,
+    $<HTMLTextAreaElement>('#text').value,
+    cfg.mode,
+    cfg.voice,
+    cfg.voiceB
+  );
   dl.href = audioUrl;
   dl.download = lastName;
   dl.textContent = currentJob.format === 'mp3' ? 'Download MP3 file' : 'Download WAV file';
@@ -948,7 +2151,9 @@ async function run() {
         currentJob.done++;
         tries = 0;
         const pc = Math.floor((currentJob.done * 100) / currentJob.items.length);
-        $<HTMLProgressElement>('#prog').value = pc;
+        const progEl = $<HTMLProgressElement>('#prog');
+        progEl.value = pc;
+        progEl.setAttribute('aria-valuetext', `${pc} percent (${currentJob.done} of ${currentJob.items.length} parts)`);
         if (currentJob.done === 1 || currentJob.done % 5 === 0 || currentJob.done === currentJob.items.length) {
           say(`Part ${currentJob.done} of ${currentJob.items.length} done, ${pc} percent.`);
         }
@@ -1063,7 +2268,7 @@ $('#prev').onclick = async () => {
   ui();
 
   if (result.kind !== 'ok') {
-    say(`Preview failed: ${result.msg}`);
+    sayError(`Preview failed: ${result.msg}`);
     return;
   }
 
@@ -1087,6 +2292,8 @@ function setText(t: string) {
 
 $('#clear').onclick = () => {
   setText('');
+  loadedDocTitle = '';
+  $<HTMLInputElement>('#audioTitle').value = '';
   say('Text cleared.');
   $('#text').focus();
 };
@@ -1098,6 +2305,11 @@ $('#paste').onclick = async () => {
       say('The clipboard is empty.');
       return;
     }
+    const titleEl = $<HTMLInputElement>('#audioTitle');
+    if (loadedDocTitle && titleEl.value.trim() === loadedDocTitle) {
+      titleEl.value = '';
+    }
+    loadedDocTitle = '';
     setText(t);
     say(`Pasted ${[...t].length.toLocaleString()} characters.`);
   } catch {
@@ -1106,7 +2318,17 @@ $('#paste').onclick = async () => {
   }
 };
 
+$('#sampleSingle').onclick = () => {
+  loadedDocTitle = '';
+  setText(
+    'Voice Studio converts study notes, PDF textbooks, and bilingual English or Urdu paragraphs into clear speech you can download as a single MP3 or WAV file.'
+  );
+  say('Inserted sample text. Press Preview first 200 characters or Generate audio.');
+  $('#text').focus();
+};
+
 $('#sampleDialogue').onclick = () => {
+  loadedDocTitle = '';
   setText(
     'Host: Welcome back to our study session. Today we are reviewing how long-form text-to-speech works.\n' +
       'Guest: Thanks for having me. Splitting text at natural sentence boundaries keeps the pacing smooth and easy to follow.\n' +
@@ -1121,10 +2343,17 @@ async function handleSelectedFile(f: File) {
   ui();
   say(`Reading ${f.name}…`);
   try {
+    const { extractDocument } = await import('./doc-extract');
     const res = await extractDocument(f, cfg.cleanDocs);
     if (!res.text.trim()) {
       say(`No readable text was found inside ${f.name}. If this is a scanned image PDF, OCR is needed first.`);
       return;
+    }
+    const prevDocTitle = loadedDocTitle;
+    loadedDocTitle = cleanDocBasename(f.name);
+    const titleEl = $<HTMLInputElement>('#audioTitle');
+    if (!titleEl.value.trim() || titleEl.value.trim() === prevDocTitle) {
+      titleEl.value = loadedDocTitle;
     }
     setText(res.text);
     const details: string[] = [res.formatLabel];
@@ -1205,8 +2434,119 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
+/* ---- In-Page Contact Form ---- */
+function bindContactForm() {
+  const form = $<HTMLFormElement>('#contactForm');
+  const submitBtn = $<HTMLButtonElement>('#contactSubmit');
+  const statusEl = $('#contactStatus');
+  const errEl = $('#contactErr');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errEl.textContent = '';
+    statusEl.textContent = '';
+
+    const nameEl = $<HTMLInputElement>('#contactName');
+    const emailEl = $<HTMLInputElement>('#contactEmail');
+    const subjectEl = $<HTMLSelectElement>('#contactSubject');
+    const messageEl = $<HTMLTextAreaElement>('#contactMessage');
+
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Sending your message…';
+
+    try {
+      const refId = await submitContactMessage({
+        name: nameEl.value,
+        email: emailEl.value,
+        subject: subjectEl.value,
+        message: messageEl.value,
+      });
+      messageEl.value = '';
+      statusEl.textContent = `Message sent! Your note has been delivered directly to the Voice Studio developer without leaving this page (Reference: ${refId}).`;
+      statusEl.focus?.();
+    } catch (err) {
+      statusEl.textContent = '';
+      const raw = err instanceof Error ? err.message : 'Could not send message right now.';
+      if (raw.includes('"error":')) {
+        errEl.textContent = 'Message could not be saved right now. Please check all fields and try again.';
+      } else {
+        errEl.textContent = raw;
+      }
+      if (nameEl.value.trim().length < 2) nameEl.focus();
+      else if (!emailEl.value.includes('@')) emailEl.focus();
+      else if (messageEl.value.trim().length < 10) messageEl.focus();
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+/* ---- PWA Install & Social Share Loop ---- */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+function bindPwaAndShare() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
+  let deferredPrompt: BeforeInstallPromptEvent | null = null;
+  const installBtn = $<HTMLButtonElement>('#installAppBtn');
+  const drawerShareMsg = $('#drawerShareMsg');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e as BeforeInstallPromptEvent;
+    installBtn.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+    installBtn.hidden = true;
+    drawerShareMsg.textContent = 'Voice Studio has been installed to your device.';
+  });
+
+  installBtn.onclick = async () => {
+    if (!deferredPrompt) return;
+    await deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.hidden = true;
+    drawerShareMsg.textContent =
+      choice.outcome === 'accepted' ? 'Installing Voice Studio app…' : 'Install cancelled.';
+    $('#shareDrawerBtn').focus();
+  };
+
+  $('#shareDrawerBtn').onclick = async () => {
+    const shareUrl = window.location.origin;
+    const shareText =
+      'Try Voice Studio: free accessible PDF, EPUB & Word DOCX to MP3/WAV speech converter built for screen readers and bilingual notes.';
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Voice Studio', text: shareText, url: shareUrl });
+        drawerShareMsg.textContent = 'Thanks for sharing Voice Studio!';
+        return;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      drawerShareMsg.textContent = 'Website link copied! Share it anywhere with students or colleagues.';
+    } catch {
+      drawerShareMsg.textContent = `Share link: ${shareUrl}`;
+    }
+  };
+}
+
 /* ---- Init ---- */
 bindSettings();
+bindContactForm();
+bindPwaAndShare();
 drawDict();
 route(false);
 ui();

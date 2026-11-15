@@ -1,0 +1,27 @@
+{
+  "name": "Voice Studio – Accessible PDF, EPUB & DOCX to Audio Converter",
+  "short_name": "Voice Studio",
+  "description": "Convert PDF, EPUB, Word DOCX, and Urdu or English notes into natural MP3 and WAV audio with screen-reader accessibility.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#0b57d0",
+  "lang": "en",
+  "categories": ["education", "utilities", "accessibility"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

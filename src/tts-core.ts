@@ -8,10 +8,24 @@ import type {
 } from './types';
 
 export const MODELS = [
-  { id: 'gemini-3.8-flash-tts', label: 'Gemini 3.8 Flash TTS (best quality)', ratePer1MAudioTokens: 9.0 },
+  { id: 'gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS (free-tier compatible)', ratePer1MAudioTokens: 10.0 },
+  { id: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash TTS (broad compatibility)', ratePer1MAudioTokens: 6.0 },
+  { id: 'gemini-3.8-flash-tts', label: 'Gemini 3.8 Flash TTS (latest generation)', ratePer1MAudioTokens: 9.0 },
   { id: 'gemini-3.8-flash-lite-tts', label: 'Gemini 3.8 Flash-Lite TTS (faster, lower cost)', ratePer1MAudioTokens: 6.0 },
-  { id: 'gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS (preview)', ratePer1MAudioTokens: 10.0 },
+  { id: 'gemini-2.5-pro-preview-tts', label: 'Gemini 2.5 Pro TTS (high fidelity studio)', ratePer1MAudioTokens: 12.0 },
 ] as const;
+
+export function getModelFallbackOrder(preferredModel: string): string[] {
+  const ordered = [
+    preferredModel,
+    'gemini-3.1-flash-tts-preview',
+    'gemini-2.5-flash-preview-tts',
+    'gemini-3.8-flash-tts',
+    'gemini-3.8-flash-lite-tts',
+    'gemini-2.5-pro-preview-tts',
+  ];
+  return [...new Set(ordered.filter((id) => MODELS.some((m) => m.id === id)))];
+}
 
 export const VOICES =
   'Zephyr Puck Charon Kore Fenrir Leda Orus Aoede Callirrhoe Autonoe Enceladus Iapetus Umbriel Algieba Despina Erinome Algenib Rasalgethi Laomedeia Achernar Alnilam Schedar Gacrux Pulcherrima Achird Zubenelgenubi Vindemiatrix Sadachbia Sadaltager Sulafat'.split(

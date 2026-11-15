@@ -25,10 +25,24 @@ const FIREBASE_JWKS = createRemoteJWKSet(
 );
 
 const ALLOWED_MODELS = new Set([
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.5-pro-preview-tts',
   'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts',
   'gemini-3.1-flash-tts-preview',
 ]);
+
+function getFallbackModels(preferred: string): string[] {
+  const order = [
+    preferred,
+    'gemini-3.1-flash-tts-preview',
+    'gemini-2.5-flash-preview-tts',
+    'gemini-3.8-flash-tts',
+    'gemini-3.8-flash-lite-tts',
+    'gemini-2.5-pro-preview-tts',
+  ];
+  return [...new Set(order.filter((id) => ALLOWED_MODELS.has(id)))];
+}
 
 const ALLOWED_VOICES = new Set(
   'Zephyr Puck Charon Kore Fenrir Leda Orus Aoede Callirrhoe Autonoe Enceladus Iapetus Umbriel Algieba Despina Erinome Algenib Rasalgethi Laomedeia Achernar Alnilam Schedar Gacrux Pulcherrima Achird Zubenelgenubi Vindemiatrix Sadachbia Sadaltager Sulafat'.split(
@@ -194,7 +208,11 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
   const url = new URL(request.url);
 
   if (url.pathname === '/api/health') {
-    return json({ ok: true, service: 'voice-studio-worker' });
+    return json({
+      ok: true,
+      service: 'voice-studio-worker',
+      backendConfigured: Boolean(env.GEMINI_API_KEY),
+    });
   }
 
   if (url.pathname === '/api/quota' && request.method === 'GET') {
@@ -228,7 +246,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       return json(
         {
           error:
-            'Server speech engine is not configured yet. Set GEMINI_API_KEY in Cloudflare Worker Secrets (or environment variables).',
+            'Shared server speech engine is temporarily unavailable. You can enable Own Gemini API Key (Unlimited Mode) in Step 1.',
         },
         503
       );
@@ -275,7 +293,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       return json(
         {
           error:
-            'Daily community free capacity has been reached for today. Add Pro Credits or try again tomorrow.',
+            'Daily shared free capacity has been reached for today. Please try again tomorrow.',
           code: 'GLOBAL_CAP_REACHED',
         },
         429
@@ -285,7 +303,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
     if (paidNeeded > state.wallet.paidCredits) {
       return json(
         {
-          error: `Daily free limit (${state.wallet.dailyLimit.toLocaleString()} characters/day) reached. Remaining today: ${state.remainingDaily.toLocaleString()} chars, Paid credits: ${state.wallet.paidCredits.toLocaleString()} chars.`,
+          error: `Daily free limit (${state.wallet.dailyLimit.toLocaleString()} characters/day) reached. Remaining today: ${state.remainingDaily.toLocaleString()} chars, Available credits: ${state.wallet.paidCredits.toLocaleString()} chars.`,
           code: 'QUOTA_EXCEEDED',
           quota: {
             dailyLimit: state.wallet.dailyLimit,
@@ -298,22 +316,33 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       );
     }
 
-    let geminiRes: Response;
-    try {
-      geminiRes = await fetch(`${GEMINI_API}/${model}:generateContent`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': env.GEMINI_API_KEY,
-        },
-        body: JSON.stringify(buildGeminiBody(model, voice, style, text)),
-      });
-    } catch {
-      return json({ error: 'Could not reach Google speech servers. Please try again.' }, 502);
+    const candidates = getFallbackModels(model);
+    let geminiRes: Response | null = null;
+    let geminiText = '';
+    let usedModel = model;
+
+    for (const candidateModel of candidates) {
+      usedModel = candidateModel;
+      try {
+        geminiRes = await fetch(`${GEMINI_API}/${candidateModel}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': env.GEMINI_API_KEY,
+          },
+          body: JSON.stringify(buildGeminiBody(candidateModel, voice, style, text)),
+        });
+      } catch {
+        return json({ error: 'Could not reach Google speech servers. Please try again.' }, 502);
+      }
+
+      geminiText = await geminiRes.text();
+      if (geminiRes.ok || geminiRes.status !== 404) {
+        break;
+      }
     }
 
-    const geminiText = await geminiRes.text();
-    if (!geminiRes.ok) {
+    if (!geminiRes || !geminiRes.ok) {
       let upstreamMsg = 'Speech generation failed upstream.';
       try {
         const parsed = JSON.parse(geminiText) as { error?: { message?: string } };
@@ -321,8 +350,17 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       } catch {
         // Ignore
       }
-      const statusOut = geminiRes.status === 429 ? 429 : geminiRes.status >= 500 ? 502 : 400;
-      return json({ error: upstreamMsg, code: `UPSTREAM_${geminiRes.status}` }, statusOut);
+      const upstreamStatus = geminiRes?.status || 502;
+      const statusOut =
+        upstreamStatus === 429
+          ? 429
+          : upstreamStatus === 404
+            ? 404
+            : upstreamStatus >= 500
+              ? 502
+              : 400;
+      const code = upstreamStatus === 404 ? 'UPSTREAM_MODEL_404' : `UPSTREAM_${upstreamStatus}`;
+      return json({ error: upstreamMsg, code }, statusOut);
     }
 
     let inlineAudio: { data: string; mimeType?: string } | undefined;
@@ -362,7 +400,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
           updatedWallet,
           charCount,
           paidNeeded,
-          model
+          usedModel
         );
       } else {
         await state.kv.put(`user:${userOrErr.uid}:${state.today}`, String(updatedWallet.dailyUsedChars), {
@@ -375,6 +413,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
 
     return json({
       audio: inlineAudio,
+      usedModel,
       quota: {
         dailyLimit: updatedWallet.dailyLimit,
         dailyUsedChars: updatedWallet.dailyUsedChars,

@@ -3,35 +3,226 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://apis.google.com https://www.googleapis.com; img-src 'self' data: https://*.googleusercontent.com; media-src blob:; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; manifest-src 'self'; worker-src 'self' blob:; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebaseinstallations.googleapis.com https://apis.google.com https://www.googleapis.com https://www.gstatic.com https://accounts.google.com https://generativelanguage.googleapis.com; img-src 'self' data: blob: https://www.gstatic.com https://*.googleusercontent.com; media-src blob:; font-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#0b57d0">
-<meta property="og:title" content="Voice Studio: long text, PDF and EPUB to natural speech">
-<meta property="og:description" content="Turn syllabi, PDFs, Word docs, EPUB books and scripts into natural MP3 or WAV audio with Gemini voices. Sign in for 3,000 free characters every day.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<meta name="application-name" content="Voice Studio">
+<meta name="author" content="Moutter Rasool">
+<meta name="keywords" content="PDF to audio converter, PDF to MP3 online free, EPUB to audiobook maker, Word DOCX to speech, Urdu text to speech, English neural TTS, free text to speech for blind students, screen reader TTS studio, NVDA JAWS TalkBack Jieshuo audio converter, two speaker AI podcast generator, document to WAV converter, accessible study notes reader, Gemini TTS studio, BYOK unlimited text to speech">
+<link id="canonicalLink" rel="canonical" href="https://voice-studio-three.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Voice Studio">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ur_PK">
+<meta id="ogUrl" property="og:url" content="https://voice-studio-three.vercel.app/">
+<meta property="og:title" content="Voice Studio – Free PDF, EPUB &amp; DOCX to Audio TTS Converter">
+<meta property="og:description" content="Convert PDF, EPUB, Word DOCX, and Urdu or English text into natural MP3 &amp; WAV audio. Built for blind readers, students, and creators—3,000 free chars daily.">
+<meta property="og:image" content="https://voice-studio-three.vercel.app/og-card.jpg">
+<meta property="og:image:alt" content="Voice Studio – Convert PDF, EPUB, and DOCX documents into MP3 and WAV audio">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Voice Studio – Free PDF, EPUB &amp; DOCX to Audio TTS Converter">
+<meta name="twitter:description" content="Convert PDF, EPUB, Word DOCX, and Urdu or English text into natural MP3 &amp; WAV audio. Built for blind readers, students, and creators—3,000 free chars daily.">
+<meta name="twitter:image" content="https://voice-studio-three.vercel.app/og-card.jpg">
+<meta name="twitter:image:alt" content="Voice Studio – PDF, EPUB, and DOCX to Audio TTS Converter">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b57d0'/%3E%3Cpath d='M9 12v8M14 8v16M19 11v10M24 14v4' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
-<title>Voice Studio: long text, PDF and EPUB to natural speech</title>
-<meta name="description" content="Turn long texts, PDFs, DOCX notes and EPUB books into natural MP3 or WAV speech. Screen-reader accessible with 3,000 free characters daily.">
+<title>Voice Studio – Free PDF, EPUB &amp; DOCX to Audio TTS Converter</title>
+<meta name="description" content="Convert PDF, EPUB, Word DOCX, and Urdu or English text into natural MP3 &amp; WAV audio. Built for blind readers, students, and creators—3,000 free chars daily.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "Voice Studio",
+      "alternateName": "Voice Studio PDF & Document TTS Converter",
+      "url": "https://voice-studio-three.vercel.app/",
+      "image": "https://voice-studio-three.vercel.app/og-card.jpg",
+      "applicationCategory": "MultimediaApplication",
+      "applicationSubCategory": "TextToSpeechConverter",
+      "operatingSystem": "All",
+      "browserRequirements": "Requires modern browser with JavaScript enabled",
+      "inLanguage": ["en", "ur", "ar", "hi"],
+      "accessibilityAPI": "ARIA",
+      "accessibilityFeature": [
+        "screenReaderAccessible",
+        "keyboardNavigable",
+        "highContrastDisplay",
+        "alternativeText"
+      ],
+      "accessibilityControl": [
+        "fullKeyboardControl",
+        "fullMouseControl",
+        "fullTouchControl"
+      ],
+      "accessibilityHazard": "none",
+      "featureList": [
+        "Convert PDF, EPUB, Word DOCX, Markdown, and TXT documents to MP3 and WAV audio",
+        "Smart page-number, hyphenation, and header cleanup for academic PDFs",
+        "Natural Urdu and English bilingual Gemini AI voices (30 voice personas)",
+        "Two-speaker dialogue and podcast mode with automatic Host/Guest switching",
+        "Custom phonetic pronunciation dictionary for abbreviations and local terms",
+        "3,000 free daily characters plus optional Bring Your Own Key Unlimited Mode",
+        "WCAG 2.1 AAA screen-reader accessible interface tested with NVDA, JAWS, TalkBack, and Jieshuo"
+      ],
+      "description": "Free PDF, EPUB, and DOCX to audio converter built for blind students, educators, and creators. Convert Urdu and English documents into natural MP3 or uncompressed WAV speech with screen-reader accessibility.",
+      "author": {
+        "@type": "Person",
+        "name": "Moutter Rasool",
+        "jobTitle": "Accessibility Software Developer",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Faisalabad",
+          "addressCountry": "PK"
+        },
+        "affiliation": {
+          "@type": "Organization",
+          "name": "AlphaAutomates"
+        }
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "AlphaAutomates",
+        "url": "https://voice-studio-three.vercel.app/"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    },
+    {
+      "@type": "HowTo",
+      "name": "How to convert a PDF, EPUB, or Word DOCX document to MP3 audio",
+      "description": "Turn books, university syllabi, and multilingual notes into one clean MP3 or WAV audio file using Voice Studio.",
+      "totalTime": "PT2M",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "name": "Sign in to unlock the converter",
+          "text": "Sign in with Google or verify your email account to activate your 3,000 free daily characters or optionally turn on Unlimited Mode with your own Google AI Studio key."
+        },
+        {
+          "@type": "HowToStep",
+          "name": "Choose voice, format, and pronunciation rules",
+          "text": "Pick a Gemini speech model, single voice or two-speaker dialogue mode, MP3 (64 or 128 kbps) or WAV export, and add custom pronunciation rules."
+        },
+        {
+          "@type": "HowToStep",
+          "name": "Load a PDF, DOCX, EPUB, or paste text",
+          "text": "Select or drag a document into the text area. Voice Studio parses files privately in your browser and removes repeated headers and page numbers."
+        },
+        {
+          "@type": "HowToStep",
+          "name": "Generate and download your audio",
+          "text": "Preview the first 200 characters or generate the full audio file, listen at 1.0x to 2.0x speed, and download or share one joined MP3 or WAV file."
+        }
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How does the free PDF to audio converter for blind users work?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Voice Studio extracts readable text from PDF, DOCX, EPUB, Markdown, and TXT files directly inside your browser, strips repeated running headers and page numbers, splits cleanly at sentence boundaries, and exports one continuous MP3 or WAV file with full ARIA keyboard and screen-reader announcements."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Voice Studio support Urdu and English text to speech?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Natural Gemini voices speak both Urdu and English fluently, including mixed bilingual study notes and lectures. You can also save custom phonetic rules in the Pronunciation Dictionary so acronyms, Urdu names, and technical terms sound natural."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I convert an EPUB ebook or Word DOCX file into an MP3 audiobook?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Load any DRM-free EPUB ebook or Word DOCX handout to extract clean chapter text and export it as one lightweight 64 kbps MP3 audiobook for mobile listening or 128 kbps MP3 and 24 kHz WAV for studio voiceovers."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do the daily 3,000 free characters and Unlimited Mode work?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Every verified account receives 3,000 free characters daily with zero API key setup. For full textbooks and multi-hour audiobooks, you can optionally toggle Own Gemini API Key (Unlimited Mode) in Step 1, which saves your key strictly in browser localStorage."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Are my PDF, DOCX, and EPUB documents stored on a server?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. PDF, DOCX, EPUB, and TXT files are parsed entirely locally inside your browser. Neither your uploaded documents nor your final joined MP3 or WAV audio files are saved on Voice Studio servers."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I create a two-speaker podcast or dialogue audio file?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Switch Narration Mode to Dialogue / 2 speakers, choose separate voices for Speaker A and Speaker B, and start lines with Host: and Guest: or A: and B:. Voice Studio alternates speakers cleanly into a single audio track."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which screen readers is Voice Studio tested and designed for?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Voice Studio is built by a blind developer with WCAG 2.1 AAA semantics, skip links, 44px touch targets, logical heading hierarchy, and polite and assertive aria-live announcements tested for Jieshuo, Android TalkBack, NVDA, JAWS, and VoiceOver."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Should I choose MP3 or WAV output for study notes and YouTube voiceovers?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Select MP3 at 64 kbps for long lecture notes, exam preparation, and mobile sharing because it shrinks one hour of speech to roughly 28 MB. Select 128 kbps MP3 or uncompressed WAV (24 kHz PCM) for video editing, podcasts, and crystal-clear mastering."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-<noscript><p style="padding:16px">Voice Studio needs JavaScript to work.</p></noscript>
+<noscript><p class="noscript-msg">Voice Studio needs JavaScript to work.</p></noscript>
 <a class="skip" href="#main">Skip to main content</a>
 
-<header class="site-header">
+<header class="site-header" id="siteHeader">
   <div class="wrap header-inner">
-    <a class="brand" href="#tool">
-      <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-        <rect width="32" height="32" rx="7" fill="#0b57d0"/>
-        <path d="M9 12v8M14 8v16M19 11v10M24 14v4" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
-      </svg>
-      <span>Voice Studio</span>
-    </a>
+    <div class="header-left">
+      <button
+        id="openDrawerBtn"
+        type="button"
+        class="sec menu-btn"
+        aria-label="Open navigation drawer"
+        aria-expanded="false"
+        aria-controls="navDrawer"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span>Menu</span>
+      </button>
 
-    <nav class="main-nav" aria-label="Main">
-      <a href="#tool">Converter</a>
-      <a href="#guides">Guides</a>
-      <a href="#about">About</a>
-      <a href="#contact">Contact</a>
-    </nav>
+      <a class="brand" href="/" data-page="tool">
+        <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect width="32" height="32" rx="7" fill="#0b57d0"/>
+          <path d="M9 12v8M14 8v16M19 11v10M24 14v4" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Voice Studio</span>
+      </a>
+    </div>
 
     <div class="header-actions" id="headerActions">
       <span class="header-user" id="headerUser" hidden></span>
@@ -40,29 +231,68 @@
   </div>
 </header>
 
+<div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+<aside
+  id="navDrawer"
+  class="nav-drawer"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="drawerTitle"
+  hidden
+>
+  <div class="drawer-head">
+    <h2 id="drawerTitle">Navigation</h2>
+    <button id="closeDrawerBtn" type="button" class="sec" aria-label="Close navigation drawer">Close</button>
+  </div>
+
+  <nav class="drawer-nav" aria-label="Main pages">
+    <a href="/" data-page="tool">Home / Converter</a>
+    <a href="/account" data-page="account" id="navAccountLink" hidden>My Account</a>
+    <a href="/admin" data-page="admin" id="navAdminLink" hidden>Admin Panel</a>
+    <a href="/guides" data-page="guides">Guides &amp; Workflows</a>
+    <a href="/formats" data-page="formats">Supported Formats</a>
+    <a href="/faq" data-page="faq">FAQ</a>
+    <a href="/about" data-page="about">About</a>
+    <a href="/contact" data-page="contact">Contact</a>
+
+    <p class="drawer-section-label" aria-hidden="true">Legal</p>
+    <a href="/privacy" data-page="privacy">Privacy Policy</a>
+    <a href="/terms" data-page="terms">Terms &amp; Conditions</a>
+  </nav>
+
+  <div class="drawer-foot">
+    <p id="drawerUser" class="drawer-user" hidden></p>
+    <button id="drawerAuthBtn" type="button" class="full">Sign in to Converter</button>
+    <button id="installAppBtn" type="button" class="sec full" hidden>Install Voice Studio App</button>
+    <button id="shareDrawerBtn" type="button" class="sec full">Share Voice Studio</button>
+    <p id="drawerShareMsg" class="hint" role="status" aria-live="polite"></p>
+  </div>
+</aside>
+
 <main id="main" tabindex="-1">
   <div class="wrap">
     <section id="tool" data-title="Converter">
 
       <div id="authGate" class="auth-gate">
         <div>
-          <h1>Turn long text and documents into natural speech</h1>
-          <p class="lead">Paste notes or load a PDF, Word (DOCX), EPUB, or TXT file. Voice Studio cleans page clutter, reads with natural Gemini voices, and exports one MP3 or WAV file—no API key setup needed.</p>
+          <h1 tabindex="-1">Turn PDF, EPUB, Word DOCX &amp; Notes into Natural Speech</h1>
+          <p class="lead">Voice Studio is an accessible text-to-speech studio built for blind readers, students, educators, and creators. Convert Urdu or English documents into clean MP3 audiobooks or uncompressed WAV voiceovers—no API key required to start.</p>
 
           <ul class="feature-list">
             <li>
-              <strong>3,000 free characters every day</strong>
-              <span>Verified accounts receive a daily character allowance ready for notes, study guides, and voice previews.</span>
+              <strong>3,000 free characters every day + Unlimited Mode</strong>
+              <span>Verified accounts receive a daily free character allowance automatically, or paste your own free Google AI Studio key in browser storage for full-book conversion.</span>
             </li>
             <li>
-              <strong>Private browser-side document parsing</strong>
-              <span>PDF, DOCX, EPUB, and text files are read locally in your browser with automatic page-number and header cleanup.</span>
+              <strong>Private PDF, DOCX, EPUB &amp; Markdown parsing</strong>
+              <span>Documents stay in your browser—never stored on a server—with automatic page-number, running-header, and hyphenation cleanup.</span>
             </li>
             <li>
-              <strong>MP3 &amp; WAV export, dialogue, and dictionary</strong>
-              <span>Switch between single narration or two-speaker dialogue and save custom pronunciation rules.</span>
+              <strong>Screen-reader first, multi-speaker &amp; phonetic control</strong>
+              <span>Engineered for Jieshuo, NVDA, JAWS, TalkBack, and VoiceOver with two-speaker podcast dialogues and a custom Pronunciation Dictionary.</span>
             </li>
           </ul>
+          <p class="hint">Explore resources: <a href="/guides" data-page="guides">Guides &amp; Workflows</a> · <a href="/formats" data-page="formats">Supported Formats</a> · <a href="/faq" data-page="faq">FAQ</a> · <a href="/about" data-page="about">About &amp; Author</a></p>
         </div>
 
         <div class="card" id="authCard" tabindex="-1">
@@ -78,7 +308,7 @@
             <button id="tabSignUp" type="button" aria-pressed="false">Create Account</button>
           </div>
 
-          <form id="authForm">
+          <form id="authForm" novalidate>
             <div id="authNameWrap" hidden>
               <label for="authName">Full name</label>
               <input id="authName" type="text" autocomplete="name" maxlength="120" placeholder="Your name">
@@ -98,7 +328,7 @@
       </div>
 
       <div class="card" id="authVerifyBox" tabindex="-1" hidden>
-        <h1>Verify your email address</h1>
+        <h1 tabindex="-1">Verify your email address</h1>
         <p class="note-box">We sent a verification link to <strong id="verifyEmailText"></strong>. Open the link in your inbox, then select <strong>I verified — refresh status</strong> to open the converter workspace and activate your 3,000 characters/day free allowance.</p>
         <div class="btn-group">
           <button id="refreshVerify" type="button">I verified — refresh status</button>
@@ -109,99 +339,12 @@
       </div>
 
       <div id="converterWorkspace" hidden>
-        <h1>Turn long text and documents into natural speech</h1>
+        <h1 tabindex="-1">Turn long text and documents into natural speech</h1>
         <p class="lead">Configure your voice and output format below, then paste text or load a PDF, DOCX, EPUB, or TXT file.</p>
 
-        <div class="card" id="accountCard" tabindex="-1">
-          <div class="account-head">
-            <div>
-              <h2 id="userDisplay">Account</h2>
-              <p class="account-meta" id="userAccountMeta"></p>
-            </div>
-            <div class="btn-group">
-              <button id="refreshQuota" type="button" class="sec">Refresh balance</button>
-              <button id="signOutBtn" type="button" class="sec">Sign out</button>
-            </div>
-          </div>
-
-          <div class="quota-metrics">
-            <div class="quota-metric">
-              <span class="quota-label">Free remaining today</span>
-              <strong id="statDailyRemaining">3,000 chars</strong>
-            </div>
-            <div class="quota-metric">
-              <span class="quota-label">Available credits</span>
-              <strong id="statPaidCredits">0 chars</strong>
-            </div>
-            <div class="quota-metric">
-              <span class="quota-label">Total lifetime generated</span>
-              <strong id="statTotalUsed">0 chars</strong>
-            </div>
-          </div>
-
-          <label for="dailyBar" id="dailyBarLabel">Daily free allowance used: 0 of 3,000 characters</label>
-          <progress id="dailyBar" value="0" max="3000"></progress>
-
+        <div class="card compact-bar" id="workspaceBalanceBar">
+          <p class="account-meta" id="workspaceBalanceText">Checking balance…</p>
           <p class="hint" id="backendNotice" hidden></p>
-          <p id="accountMsg" class="hint" role="status" aria-live="polite"></p>
-
-          <details class="panel">
-            <summary>Recent usage history</summary>
-            <ul class="ledger-list" id="ledgerList">
-              <li>No usage recorded yet.</li>
-            </ul>
-          </details>
-        </div>
-
-        <div class="card" id="adminCard" hidden>
-          <h2>Admin: User Credit Accounting</h2>
-          <p class="hint">Manage user credit balances, daily limits, and account status. All changes are logged to the immutable Firestore ledger.</p>
-          <div class="btn-group">
-            <button id="adminLoadUsers" type="button" class="sec">Load user wallets</button>
-          </div>
-          <div class="admin-table-wrap" id="adminTableWrap" hidden>
-            <table class="admin-table">
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Plan</th>
-                  <th>Daily Used</th>
-                  <th>Credits</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="adminUsersBody"></tbody>
-            </table>
-          </div>
-          <div class="row">
-            <div>
-              <label for="adminUid">Target User UID</label>
-              <input id="adminUid" type="text" placeholder="Click Select above or paste UID">
-            </div>
-            <div>
-              <label for="adminAddCredits">Add Credits (characters)</label>
-              <input id="adminAddCredits" type="number" value="100000" step="1000">
-            </div>
-          </div>
-          <div class="row">
-            <div>
-              <label for="adminDailyLimit">Daily Free Limit</label>
-              <input id="adminDailyLimit" type="number" value="3000" min="0" max="100000">
-            </div>
-            <div>
-              <label for="adminPlan">Account Tier</label>
-              <select id="adminPlan">
-                <option value="free">Free</option>
-                <option value="pro">Extended</option>
-              </select>
-            </div>
-          </div>
-          <label for="adminNote">Accounting Note</label>
-          <input id="adminNote" type="text" maxlength="240" placeholder="Grant or adjustment note">
-          <div class="btn-group">
-            <button id="adminApply" type="button">Update Credits &amp; Log</button>
-          </div>
-          <p id="adminMsg" class="hint" role="status" aria-live="polite"></p>
         </div>
 
         <div class="card">
@@ -259,12 +402,30 @@
             <div><label for="sil">Silence between parts (milliseconds)</label><input id="sil" type="number" min="0" max="3000" value="250"></div>
           </div>
 
+          <details class="panel" id="byokPanel">
+            <summary id="byokSummary">Own Gemini API Key (optional Unlimited Mode)</summary>
+            <label class="inline-check">
+              <input id="byokEnabled" type="checkbox">
+              <span>Use My Own Free Gemini API Key (Unlimited Mode)</span>
+            </label>
+            <div id="byokWrap" hidden>
+              <label for="byokKey">Your Gemini API key (stored only in your browser)</label>
+              <input id="byokKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." aria-describedby="byokHint">
+              <div class="btn-group">
+                <button id="byokToggleVis" type="button" class="sec" aria-pressed="false">Show key</button>
+                <button id="byokClear" type="button" class="sec">Clear saved key</button>
+              </div>
+            </div>
+            <p id="byokHint" class="hint">Saved strictly in your browser’s localStorage and never sent to Firebase or our server. When enabled with a valid key, speech requests run directly from your browser and bypass the 3,000-character daily limit. Leave unchecked to use the built-in free allowance.</p>
+            <p id="byokStatus" class="hint" role="status" aria-live="polite"></p>
+          </details>
+
           <details class="panel">
             <summary id="dictSummary">Pronunciation dictionary (0 active rules)</summary>
             <p class="hint">Fix how specific abbreviations, names, or non-English terms are spoken before audio is generated. Your original text stays untouched.</p>
             <div class="row">
-              <div><label for="dictFind">Written text</label><input id="dictFind" placeholder="For example: JieShuo or Dr."></div>
-              <div><label for="dictReplace">Spoken as</label><input id="dictReplace" placeholder="For example: Jee Shwo or Doctor"></div>
+              <div><label for="dictFind">Written text</label><input id="dictFind" placeholder="For example: Jieshuo or Dr."></div>
+              <div><label for="dictReplace">Spoken as</label><input id="dictReplace" placeholder="For example: Jay-shwoh or Doctor"></div>
             </div>
             <label class="inline-check">
               <input id="dictWhole" type="checkbox" checked>
@@ -292,11 +453,15 @@
           <div class="btn-group">
             <button id="paste" type="button" class="sec">Paste from clipboard</button>
             <button id="load" type="button" class="sec">Load PDF, DOCX, EPUB or TXT</button>
+            <button id="sampleSingle" type="button" class="sec">Insert sample text</button>
             <button id="sampleDialogue" type="button" class="sec" hidden>Insert sample dialogue</button>
             <button id="clear" type="button" class="sec">Clear text</button>
           </div>
           <input id="file" type="file" accept=".pdf,.docx,.epub,.txt,.md,text/plain,application/pdf,application/epub+zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden aria-label="Choose a PDF, Word DOCX, EPUB, or text file">
           <p id="count" class="hint" aria-live="off">Characters: 0</p>
+
+          <label for="audioTitle">Audio title for download (optional — auto-named from document or text)</label>
+          <input id="audioTitle" type="text" maxlength="80" placeholder="Leave blank to auto-name from your document or first words (no dates)">
 
           <div class="btn-group">
             <button id="gen" type="button">Generate audio</button>
@@ -305,12 +470,13 @@
             <button id="resume" type="button" class="sec" hidden>Resume</button>
           </div>
           <p id="status" role="status" aria-live="polite"></p>
-          <progress id="prog" value="0" max="100" aria-label="Progress" hidden></progress>
+          <p id="statusErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+          <progress id="prog" value="0" max="100" aria-label="Audio generation progress" aria-valuetext="0 percent" hidden></progress>
         </div>
 
-        <div class="card" id="result" hidden>
-          <h2>Your audio</h2>
-          <audio id="player" controls></audio>
+        <section class="card" id="result" aria-labelledby="resultHeading" hidden>
+          <h2 id="resultHeading">Your audio</h2>
+          <audio id="player" controls aria-label="Generated speech audio player"></audio>
           <div class="player-bar">
             <div>
               <label for="speed">Playback speed</label>
@@ -324,94 +490,354 @@
           </div>
           <div class="btn-group">
             <button id="share" type="button" hidden>Share audio</button>
-            <a id="dl" class="btn sec" download="voice-studio.mp3">Download audio file</a>
+            <a id="dl" class="btn sec" href="#result" download="audio-narration.mp3">Download audio file</a>
           </div>
-          <p id="info" class="hint"></p>
-        </div>
+          <p id="info" class="hint" role="status" aria-live="polite"></p>
+        </section>
 
         <p class="hint">Audio is generated by AI. Please follow the rules of the platform where you publish it, including any disclosure of synthetic voices. Audio from Gemini carries an inaudible watermark.</p>
       </div>
     </section>
 
-    <section id="guides" data-title="Guides and FAQ" hidden class="legal">
-      <h1>Guides &amp; Frequently Asked Questions</h1>
-      <p class="lead">Practical workflows for students, screen-reader users, educators, and content creators.</p>
+    <section id="account" data-title="My Account" data-description="Manage your Voice Studio account balance, daily free allowance, speech server status, and usage history." hidden>
+      <h1 tabindex="-1">My Account</h1>
+      <p class="lead">Check your daily free allowance, available credits, speech server status, and recent activity.</p>
 
-      <h2>How your daily free allowance works</h2>
-      <p>Every verified Voice Studio account receives <strong>3,000 free characters every day</strong> (roughly 3–4 minutes of natural speech, enough for daily notes, articles, and previews). Your balance resets automatically every day at UTC midnight.</p>
+      <div class="card" id="accountCard" tabindex="-1">
+        <div class="account-head">
+          <div>
+            <h2 id="userDisplay">Account</h2>
+            <p class="account-meta" id="userAccountMeta"></p>
+          </div>
+          <div class="btn-group">
+            <button id="refreshQuota" type="button" class="sec">Refresh balance</button>
+            <button id="signOutBtn" type="button" class="dng">Sign out</button>
+          </div>
+        </div>
 
-      <h2>How to convert long PDF textbooks and syllabi cleanly</h2>
-      <p>Academic PDFs often contain repeated chapter headers, footers, and page numbers on every page that interrupt listening. Keep <strong>Smart document cleanup</strong> checked before clicking <strong>Load PDF, DOCX, EPUB or TXT</strong>. Voice Studio reads the document locally in your browser, strips repeated running headers and standalone page numbers, rejoins hyphenated line breaks, and places only the clean readable text into the editor.</p>
+        <div class="quota-metrics">
+          <div class="quota-metric">
+            <span class="quota-label">Free remaining today</span>
+            <strong id="statDailyRemaining">3,000 chars</strong>
+          </div>
+          <div class="quota-metric">
+            <span class="quota-label">Available credits</span>
+            <strong id="statPaidCredits">0 chars</strong>
+          </div>
+          <div class="quota-metric">
+            <span class="quota-label">Total lifetime generated</span>
+            <strong id="statTotalUsed">0 chars</strong>
+          </div>
+          <div class="quota-metric">
+            <span class="quota-label">Account plan</span>
+            <strong id="statAccountPlan">Free</strong>
+          </div>
+        </div>
 
-      <h2>Why MP3 vs WAV matters for long audio</h2>
-      <p>Uncompressed WAV audio at 24 kHz uses roughly 170 MB per hour. When listening to a study guide on a mobile phone or sharing lectures on WhatsApp or Google Classroom, choose <strong>MP3 (64 kbps)</strong>—it reduces file size by roughly 90% while keeping human speech crystal clear. Choose <strong>WAV</strong> or <strong>MP3 (128 kbps)</strong> when editing voiceovers.</p>
+        <label for="dailyBar" id="dailyBarLabel">Daily free allowance used: 0 of 3,000 characters</label>
+        <progress id="dailyBar" value="0" max="3000" aria-labelledby="dailyBarLabel"></progress>
 
-      <h2>Fixing pronunciation for Urdu, Arabic, and technical terms</h2>
-      <p>Open the <strong>Pronunciation dictionary</strong> inside step 1 to map abbreviations or terms to phonetic spellings—for example, mapping <code>Dr.</code> to <code>Doctor</code> or custom screen-reader terms. These replacements run automatically right before speech synthesis without changing your saved notes.</p>
+        <p id="serverHealthStatus" class="hint" role="status" aria-live="polite">Checking speech server status…</p>
+        <p id="accountMsg" class="hint" role="status" aria-live="polite"></p>
 
-      <h2>Creating two-speaker dialogues and study podcasts</h2>
-      <p>Switch <strong>Narration mode</strong> to <strong>Dialogue / 2 speakers</strong>, choose distinct voices for Speaker A and Speaker B, and prefix lines with <code>Host:</code> and <code>Guest:</code> (or <code>A:</code> and <code>B:</code>). Voice Studio automatically synthesizes each speaker turn with its assigned Gemini voice and blends them smoothly with your chosen silence gap.</p>
+        <details class="panel" open>
+          <summary>Recent usage &amp; credit history</summary>
+          <ul class="ledger-list" id="ledgerList">
+            <li>No usage recorded yet.</li>
+          </ul>
+        </details>
+      </div>
+
+      <div class="btn-group">
+        <a href="/" data-page="tool" class="btn">Back to Converter</a>
+      </div>
     </section>
 
-    <section id="about" data-title="About" hidden class="legal">
-      <h1>About Voice Studio</h1>
-      <p>Voice Studio was created by Moutter Rasool, a developer from Faisalabad, Pakistan, who builds accessible tools for blind and visually impaired people. It began as a plug-in for the JieShuo screen reader, where students needed to turn very long syllabi into audio.</p>
-      <h2>What it does</h2>
-      <p>It reads PDF, DOCX, EPUB, and plain text documents directly in your browser, cleans repeated page headers, splits text at paragraph and sentence ends, generates natural speech securely on our server, and joins the result into one MP3 or WAV file.</p>
-      <h2>Who it is for</h2>
-      <p>Students, teachers, blind and low-vision readers, video creators, podcasters and freelancers who need clear narration without recording it by hand.</p>
-      <h2>Accessibility</h2>
-      <p>The whole site works with a keyboard and a screen reader. If something is hard to use, please <a href="#contact">tell us</a>.</p>
-      <p class="hint">Voice Studio is an independent project and is not affiliated with Google. Gemini is a trademark of Google LLC.</p>
+    <section id="admin" data-title="Admin Panel" data-description="Restricted administrator panel for managing user accounts, credits, daily limits, activity history, and visitor messages." hidden>
+      <h1 tabindex="-1">Admin Panel</h1>
+      <p class="lead">Manage user accounts, credits, daily limits, activity history, and visitor messages.</p>
+      <div id="adminMount"></div>
+      <div class="btn-group">
+        <a href="/" data-page="tool" class="btn sec">Back to Converter</a>
+      </div>
     </section>
 
-    <section id="contact" data-title="Contact" hidden class="legal">
-      <h1>Contact</h1>
-      <p>Questions, accessibility feedback, bug reports, or collaboration ideas are welcome.</p>
-      <p>Email: <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a></p>
-      <p>Developer: Moutter Rasool, Faisalabad, Pakistan.</p>
-      <p>We read every message and usually reply within a few working days.</p>
+    <section id="guides" data-title="Guides & Workflows" data-description="Step-by-step guides for converting PDF, EPUB, DOCX, Urdu & English study notes, two-speaker podcasts, and accessible books into MP3 or WAV audio." hidden class="legal">
+      <h1 tabindex="-1">Guides &amp; Workflows</h1>
+      <p class="lead">Built as a screen reader TTS studio for blind students, educators, and creators using NVDA, JAWS, TalkBack, VoiceOver, and Jieshuo.</p>
+
+      <div class="answer-box">
+        <strong>Quick Answer:</strong>
+        <p>Voice Studio converts PDF, EPUB, Word DOCX, and Urdu/English study notes directly inside your browser into one clean MP3 or WAV file—giving every verified user 3,000 free characters daily plus an optional browser-only Unlimited Mode.</p>
+      </div>
+
+      <article class="guide-article">
+        <h2>Free PDF to Audio Converter for Blind &amp; Low-Vision Readers</h2>
+        <h3>Automatic header, footer, and page-number cleanup</h3>
+        <p>Academic PDFs and university syllabi often repeat chapter headers, footers, and page numbers on every page, interrupting listening. Keep <strong>Smart document cleanup</strong> checked before selecting <strong>Load PDF, DOCX, EPUB or TXT</strong>. Voice Studio reads the file privately inside your browser, removes repeated page clutter, rejoins hyphenated line breaks, and loads clean text ready for speech.</p>
+      </article>
+
+      <article class="guide-article">
+        <h2>Natural Urdu &amp; English Text to Speech</h2>
+        <h3>Pronunciation dictionary for local names and screen readers</h3>
+        <p>Gemini voices naturally pronounce both Urdu and English paragraphs, including bilingual study notes. Open the <strong>Pronunciation dictionary</strong> in Step 1 to map abbreviations, assistive tech names like <code>Jieshuo</code> (pronounced phonetically as <code>Jay-shwoh</code>), or local terms to exact spoken spellings without altering your original notes.</p>
+      </article>
+
+      <article class="guide-article">
+        <h2>EPUB Audiobook Maker &amp; DOCX Study Notes</h2>
+        <h3>Choosing MP3 (64 kbps) vs. WAV audio</h3>
+        <p>Load full DRM-free EPUB ebooks or Word DOCX handouts to assemble a single continuous audio file. Uncompressed WAV at 24 kHz uses around 170 MB per hour, whereas <strong>MP3 (64 kbps)</strong> shrinks file size by roughly 90% so lectures play smoothly on mobile phones and share easily over WhatsApp or Classroom.</p>
+      </article>
+
+      <article class="guide-article">
+        <h2>Daily 3,000 Free Characters &amp; Unlimited Mode</h2>
+        <h3>Convert full textbooks at zero cost</h3>
+        <p>Every verified account receives <strong>3,000 free characters daily</strong> with zero API key setup. For full textbooks or multi-hour audiobooks, open <strong>Own Gemini API Key (optional Unlimited Mode)</strong> in Step 1 and paste your free Google AI Studio key. Your key stays strictly in your browser’s <code>localStorage</code> and bypasses the 3,000-character daily cap.</p>
+      </article>
+
+      <article class="guide-article">
+        <h2>Two-Speaker Dialogues &amp; Study Podcasts</h2>
+        <h3>Host and Guest narration in one file</h3>
+        <p>Switch <strong>Narration mode</strong> to <strong>Dialogue / 2 speakers</strong>, choose distinct voices for Speaker A and Speaker B, and prefix lines with <code>Host:</code> / <code>Guest:</code> or <code>A:</code> / <code>B:</code>. Voice Studio synthesizes each speaker turn cleanly with your chosen pause gap.</p>
+      </article>
+
+      <article class="guide-article">
+        <h2>YouTube, Reels &amp; E-Learning Voiceovers</h2>
+        <h3>Consistent pacing and custom style instructions</h3>
+        <p>Add an optional style direction such as <code>calmly, clearly, at a steady documentary pace</code>, preview the first 200 characters before rendering the full script, and export 128 kbps MP3 or uncompressed WAV directly into your video editor.</p>
+      </article>
+
+      <p class="hint">Ready to convert? <a href="/" data-page="tool">Open the Converter</a> · Compare file specs in <a href="/formats" data-page="formats">Supported Formats</a>.</p>
     </section>
 
-    <section id="privacy" data-title="Privacy Policy" hidden class="legal">
-      <h1>Privacy Policy</h1>
-      <p class="hint">Last updated: 14 November 2026</p>
+    <section id="formats" data-title="Supported Formats & Audio Export" data-description="Compare PDF, EPUB, Word DOCX, Markdown, and TXT input extraction plus MP3 (64/128 kbps) and 24 kHz WAV export options in Voice Studio." hidden>
+      <h1 tabindex="-1">Supported Formats &amp; Audio Export</h1>
+      <p class="lead">Voice Studio extracts text locally in your browser from standard document formats and joins generated speech into MP3 or uncompressed WAV audio.</p>
+
+      <div class="answer-box">
+        <strong>Summary:</strong>
+        <p>Import <strong>PDF</strong>, <strong>EPUB</strong>, <strong>DOCX</strong>, <strong>Markdown</strong>, or <strong>TXT</strong> locally without uploading documents to a storage server, then export continuous <strong>64 kbps MP3</strong> (~28 MB/hour), <strong>128 kbps MP3</strong>, or <strong>24 kHz WAV</strong>.</p>
+      </div>
+
+      <div class="format-table-wrap">
+        <table class="format-table">
+          <thead>
+            <tr>
+              <th scope="col">Format / Feature</th>
+              <th scope="col">How It Works</th>
+              <th scope="col">Best For</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>PDF (.pdf)</strong></td>
+              <td>Client-side text layer extraction with optional header, footer, and page-number cleanup</td>
+              <td>Research papers, exam syllabi, textbooks, legal briefings</td>
+            </tr>
+            <tr>
+              <td><strong>EPUB (.epub)</strong></td>
+              <td>Multi-chapter DRM-free ebook text extraction directly in browser</td>
+              <td>Turning full ebooks into portable MP3 audiobooks</td>
+            </tr>
+            <tr>
+              <td><strong>Word (.docx)</strong></td>
+              <td>Clean paragraph extraction from handouts, essays, and scripts</td>
+              <td>Lecture notes, assignments, course voiceovers</td>
+            </tr>
+            <tr>
+              <td><strong>TXT &amp; Markdown (.txt, .md)</strong></td>
+              <td>Direct paste, clipboard import, or drag-and-drop conversion</td>
+              <td>YouTube narration, Reels scripts, study flashcards</td>
+            </tr>
+            <tr>
+              <td><strong>MP3 (64 kbps / 128 kbps)</strong></td>
+              <td>Smooth cross-faded speech encoding (~28 MB per hour at 64 kbps)</td>
+              <td>Mobile listening, WhatsApp sharing, low-storage phones</td>
+            </tr>
+            <tr>
+              <td><strong>WAV (24 kHz PCM)</strong></td>
+              <td>Uncompressed lossless waveform output with zero encoding delay</td>
+              <td>Video editors, podcast mastering, archival narration</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section class="seo-band" aria-labelledby="howToPageHeading">
+        <h2 id="howToPageHeading">4-Step Document Conversion Workflow</h2>
+        <ol class="howto-steps">
+          <li>
+            <strong>Sign in &amp; activate allowance</strong>
+            <p>Continue with Google or verify your email for 3,000 free characters daily, or paste your own free key for Unlimited Mode.</p>
+          </li>
+          <li>
+            <strong>Select model, voice &amp; format</strong>
+            <p>Choose Gemini speech model, single voice or 2-speaker dialogue, MP3 or WAV, and add pronunciation rules.</p>
+          </li>
+          <li>
+            <strong>Load PDF, EPUB, DOCX, or text</strong>
+            <p>Paste study notes or drop a file. Smart document cleanup removes page clutter and joins broken lines automatically.</p>
+          </li>
+          <li>
+            <strong>Preview, generate &amp; download</strong>
+            <p>Test a 200-character preview or render the full document, adjust speed up to 2.0x, and save one audio file.</p>
+          </li>
+        </ol>
+      </section>
+      <p class="hint">Need troubleshooting or screen-reader tips? Read our <a href="/guides" data-page="guides">Guides &amp; Workflows</a> or check the <a href="/faq" data-page="faq">FAQ</a>.</p>
+    </section>
+
+    <section id="faq" data-title="Frequently Asked Questions" data-description="Answers about converting PDF, EPUB, and DOCX to MP3 audio, Urdu and English voices, screen-reader accessibility, privacy, and Unlimited Mode." hidden class="legal">
+      <h1 tabindex="-1">Frequently Asked Questions</h1>
+      <p class="lead">Everything you need to know about accessible PDF, EPUB, and Word DOCX conversion, Urdu &amp; English voices, privacy, and daily free allowances.</p>
+
+      <div class="faq-list">
+        <details class="faq-item" open>
+          <summary>How does the free PDF to audio converter for blind users work?</summary>
+          <p>Voice Studio reads text layers from PDF, DOCX, EPUB, and TXT files directly in your browser, removes repeated running headers and page numbers, splits cleanly at sentence boundaries, and announces progress politely to screen readers like Jieshuo, NVDA, JAWS, TalkBack, and VoiceOver.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Does Voice Studio support Urdu and English text to speech?</summary>
+          <p>Yes. Selected Gemini speech models pronounce both English and Urdu naturally—including mixed bilingual academic notes. You can also add custom phonetic rules in the Pronunciation Dictionary so names, Arabic or Urdu terms, and technical acronyms sound right.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Can I convert an EPUB ebook or Word DOCX file into one MP3 audiobook?</summary>
+          <p>Yes. Drop any DRM-free EPUB ebook or Word DOCX file into Step 2, keep Smart Document Cleanup enabled, and Voice Studio joins all generated chunks seamlessly into one MP3 or WAV audio file.</p>
+        </details>
+        <details class="faq-item">
+          <summary>How do the 3,000 daily free characters and Unlimited Mode work?</summary>
+          <p>Every verified account receives 3,000 free characters every day with zero API key setup. For full textbooks, expand Own Gemini API Key (optional Unlimited Mode) in Step 1 and save your own Google AI Studio key strictly in browser localStorage.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Are my documents or generated MP3 files saved on Voice Studio servers?</summary>
+          <p>No. Document parsing and audio joining happen inside your browser. Neither your uploaded PDF/DOCX/EPUB files nor your downloaded audio files are stored on Voice Studio servers.</p>
+        </details>
+        <details class="faq-item">
+          <summary>How do I make a two-speaker AI podcast or dialogue recording?</summary>
+          <p>Switch Narration Mode to Dialogue / 2 speakers, select distinct voices for Speaker A and Speaker B, and prefix lines with <code>Host:</code> / <code>Guest:</code> or <code>A:</code> / <code>B:</code>. Each line switches voices automatically into one single audio file.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Which screen readers is Voice Studio tested and designed for?</summary>
+          <p>Voice Studio follows WCAG 2.1 AAA principles with skip links, logical headings, 44px touch targets, inert modal navigation drawer isolation, and live status regions tailored for Jieshuo, TalkBack, NVDA, JAWS, and VoiceOver.</p>
+        </details>
+        <details class="faq-item">
+          <summary>What if my PDF is a scanned image without selectable text?</summary>
+          <p>If a PDF contains scanned page photos with no embedded text layer, Voice Studio informs you immediately so you can run OCR before converting the extracted text to speech.</p>
+        </details>
+      </div>
+      <p class="hint">Still have a question or accessibility suggestion? <a href="/contact" data-page="contact">Send us a direct message</a>.</p>
+    </section>
+
+    <section id="about" data-title="About" data-description="Learn about Voice Studio, created by blind developer Moutter Rasool in Faisalabad, Pakistan to make PDF, EPUB, and Word study materials accessible." hidden class="legal">
+      <h1 tabindex="-1">About Voice Studio</h1>
+      <p class="lead">Voice Studio was created by <strong>Moutter Rasool</strong> (AlphaAutomates), a blind 11th-grade software developer from Faisalabad, Pakistan, who builds practical assistive tools for blind and visually impaired students, educators, and creators.</p>
+
+      <h2>Why We Built It (First-Hand Experience)</h2>
+      <p>Voice Studio began as a workflow plug-in for the <strong>Jieshuo (Commentary)</strong> Android screen reader, where blind students needed a reliable way to turn long academic PDFs, Urdu and English syllabi, and DRM-free EPUB textbooks into portable audio they could revise offline without tiring their screen reader or losing sentence flow.</p>
+
+      <h2>How It Works</h2>
+      <p>Documents loaded into Voice Studio (PDF, Word DOCX, EPUB, Markdown, or TXT) are extracted entirely inside your web browser. Smart document cleanup strips repeated headers, footers, and page numbers, applies your custom Pronunciation Dictionary rules, and joins speech synthesis output cleanly into one downloadable MP3 or uncompressed WAV track.</p>
+
+      <h2>Accessibility &amp; Quality Standards</h2>
+      <ul>
+        <li><strong>Screen-Reader First:</strong> Designed and tested with Jieshuo, Android TalkBack, NVDA, JAWS, and VoiceOver using WCAG 2.1 AAA semantics, skip links, 44px touch targets, and polite/assertive live status announcements.</li>
+        <li><strong>Zero File Retention:</strong> Your documents and finished MP3/WAV exports are never stored on Voice Studio servers.</li>
+        <li><strong>Transparent Free Tier &amp; Unlimited Mode:</strong> Verified accounts start immediately with 3,000 free characters daily, plus an optional browser-only personal Gemini API key mode for full textbooks.</li>
+      </ul>
+
+      <h2>Who Uses Voice Studio</h2>
+      <p>Blind and low-vision readers, university students, teachers preparing study audio, documentary and YouTube narrators, podcasters, and multilingual freelancers across English and Urdu.</p>
+
+      <h2>Accessibility Feedback</h2>
+      <p>Every control is built for keyboard and screen-reader navigation. If any button, label, or flow feels unclear on your device, please message us directly through the <a href="/contact" data-page="contact">in-page Contact form</a>.</p>
+      <p class="hint">Voice Studio is an independent accessibility project by AlphaAutomates and is not affiliated with Google. Gemini is a trademark of Google LLC.</p>
+    </section>
+
+    <section id="contact" data-title="Contact" data-description="Send a direct message to Voice Studio developer Moutter Rasool inside the website—for accessibility feedback, bug reports, account help, or collaboration." hidden class="legal">
+      <h1 tabindex="-1">Contact Voice Studio</h1>
+      <p class="lead">Questions, screen-reader accessibility feedback, bug reports, account deletion requests, or collaboration ideas are always welcome.</p>
+
+      <div class="card">
+        <h2>Send a direct message</h2>
+        <p class="hint">Your message submits directly inside Voice Studio—no external email app will open and you remain right on this page.</p>
+
+        <form id="contactForm" novalidate>
+          <div class="row">
+            <div>
+              <label for="contactName">Full name</label>
+              <input id="contactName" type="text" required minlength="2" maxlength="120" autocomplete="name" placeholder="Your full name">
+            </div>
+            <div>
+              <label for="contactEmail">Your email address (for reply)</label>
+              <input id="contactEmail" type="email" required maxlength="254" autocomplete="email" placeholder="yourname@example.com">
+            </div>
+          </div>
+
+          <label for="contactSubject">Topic</label>
+          <select id="contactSubject" required>
+            <option value="Accessibility Feedback (Screen Reader / Keyboard)">Accessibility Feedback (Screen Reader / Keyboard)</option>
+            <option value="Bug Report / Audio Issue">Bug Report / Audio Issue</option>
+            <option value="Account & Daily Quota Help">Account &amp; Daily Quota Help</option>
+            <option value="Privacy / Account Deletion Request">Privacy / Account Deletion Request</option>
+            <option value="Collaboration & Partnership">Collaboration &amp; Partnership</option>
+            <option value="General Question">General Question</option>
+          </select>
+
+          <label for="contactMessage">Message (minimum 10 characters)</label>
+          <textarea id="contactMessage" required minlength="10" maxlength="2000" placeholder="Describe your feedback, device/screen reader details, or question here…"></textarea>
+
+          <div class="btn-group">
+            <button id="contactSubmit" type="submit">Send message</button>
+          </div>
+          <p id="contactStatus" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
+          <p id="contactErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+        </form>
+      </div>
+
+      <p class="hint">Maintained by <strong>Moutter Rasool</strong> (AlphaAutomates), Faisalabad, Pakistan. Messages go straight to our protected admin inbox and are typically reviewed within a few working days.</p>
+    </section>
+
+    <section id="privacy" data-title="Privacy Policy" data-description="Voice Studio privacy policy: client-side PDF/EPUB/DOCX parsing, zero document retention, local storage preferences, and contact form data protection." hidden class="legal">
+      <h1 tabindex="-1">Privacy Policy</h1>
+      <p class="hint">Last updated: 15 November 2026</p>
       <h2>The short version</h2>
-      <p>Voice Studio stores only your account profile and character usage counts needed to provide your daily allowance. We do not store your documents, uploaded files, or generated audio files on our servers.</p>
-      <h2>What stays in your browser</h2>
-      <p>Your voice preferences and pronunciation dictionary rules are saved in your browser’s local storage. Documents you load (PDF, DOCX, EPUB, TXT) are parsed entirely inside your browser, and generated MP3 or WAV audio stays in memory while the page is open.</p>
-      <h2>Account data &amp; speech processing</h2>
-      <p>We use Firebase Authentication and Cloud Firestore to manage sign-in (Google or Email/Password) and daily character counters. When you generate audio, only the text chunk being spoken is sent through our secure Cloudflare Worker backend to Google’s Gemini API, and returned immediately to your browser without being stored.</p>
-      <h2>Hosting and cookies</h2>
-      <p>Cloudflare and Firebase may process standard security and session tokens required for authentication and abuse prevention. We use no advertising trackers.</p>
-      <h2>Children</h2>
-      <p>Voice Studio is for people aged 18 or older.</p>
-      <h2>Your choices and contact</h2>
-      <p>To request account deletion or ask any privacy question, write to <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a>.</p>
+      <p>Voice Studio stores only the account metadata and daily character counters needed to run your free allowance. We never store your uploaded PDF, DOCX, EPUB, or TXT files, and we never save your finished MP3 or WAV audio files on our servers.</p>
+      <h2>What stays strictly inside your browser</h2>
+      <p>Your voice settings, output format choices, Pronunciation Dictionary rules, and optional personal Gemini API key (if you activate Unlimited Mode) are stored strictly in your browser’s <code>localStorage</code>. Documents you select are extracted locally inside your browser and audio merging runs in browser memory.</p>
+      <h2>Account data &amp; speech synthesis</h2>
+      <p>Voice Studio uses Google Firebase Authentication and Cloud Firestore to handle verified sign-in and daily free character balances. When you generate speech via the shared server tier, only the active text chunk being synthesized is forwarded to Google’s Gemini API and streamed back immediately without retention.</p>
+      <h2>Direct contact messages</h2>
+      <p>When you send a message on the <a href="/contact" data-page="contact">Contact page</a>, only your provided name, email address, topic, and message are saved securely in restricted Firestore storage so the developer can review and respond to your inquiry. We never sell, rent, or publish visitor contact details.</p>
+      <h2>Hosting, security &amp; cookies</h2>
+      <p>Hosting infrastructure (Vercel, Cloudflare Workers, and Firebase) processes standard session and anti-abuse security requests. Essential browser storage is used strictly for authentication state and user preferences. Any future advertising integrations, if introduced, would adhere to Google publisher disclosure and consent policies.</p>
+      <h2>Eligibility</h2>
+      <p>Voice Studio is intended for users aged 18 or older, or students using the service with appropriate educational or guardian supervision.</p>
+      <h2>Account deletion &amp; privacy requests</h2>
+      <p>To request account removal, data clarification, or report a privacy concern, submit a request anytime through our <a href="/contact" data-page="contact">Contact page</a>.</p>
     </section>
 
-    <section id="terms" data-title="Terms and Conditions" hidden class="legal">
-      <h1>Terms and Conditions</h1>
-      <p class="hint">Last updated: 14 November 2026</p>
-      <h2>1. Acceptance</h2>
-      <p>By using Voice Studio you agree to these terms. If you do not agree, please do not use it.</p>
-      <h2>2. The service</h2>
-      <p>Voice Studio converts user-provided text and documents into natural speech via Google’s Gemini speech models. Verified accounts receive a daily free allowance (subject to global capacity). You must be 18 or older.</p>
-      <h2>3. Fair use &amp; accounts</h2>
-      <p>Creating multiple accounts to bypass the daily free character limit, automated scraping, or abusing shared capacity is prohibited and may result in account suspension.</p>
-      <h2>4. Your content and generated audio</h2>
-      <p>You keep your rights in the text you provide and confirm you have the right to use it. You are responsible for how you use and publish generated audio, including any synthetic-voice disclosures required by your publishing platform.</p>
-      <h2>5. Acceptable use</h2>
-      <p>Do not use Voice Studio to impersonate individuals without consent, deceive or defraud people, create unlawful content, or bypass safety filters.</p>
-      <h2>6. No warranty &amp; limitation of liability</h2>
-      <p>The service is provided as is and as available. AI speech can contain pronunciation mistakes, so review audio before relying on it. To the extent allowed by law, the developer is not liable for indirect or consequential loss. These terms are governed by the laws of Pakistan.</p>
-      <h2>7. Contact</h2>
-      <p>Moutter Rasool, <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a>.</p>
+    <section id="terms" data-title="Terms and Conditions" data-description="Terms, acceptable use rules, and AI audio disclaimer for Voice Studio document and text-to-speech tools." hidden class="legal">
+      <h1 tabindex="-1">Terms and Conditions</h1>
+      <p class="hint">Last updated: 15 November 2026</p>
+      <h2>1. Acceptance of Terms</h2>
+      <p>By accessing or using Voice Studio, you agree to these Terms and Conditions. If you do not agree with any part of these terms, please discontinue use of the service.</p>
+      <h2>2. Description of Service</h2>
+      <p>Voice Studio provides browser-based text extraction and AI text-to-speech synthesis powered by Google Gemini speech models. Verified accounts receive a free daily character allowance (subject to shared server capacity) as well as optional client-side Bring Your Own Key mode.</p>
+      <h2>3. Fair Use &amp; Account Integrity</h2>
+      <p>Creating multiple accounts to circumvent daily character allowances, running automated scraping scripts, attempting to bypass rate limits, or interfering with server availability is strictly prohibited and may result in account suspension.</p>
+      <h2>4. Intellectual Property &amp; Your Content</h2>
+      <p>You retain full rights to any documents or scripts you process and confirm that you hold the necessary permission or license to convert them. You are responsible for complying with platform rules—including synthetic voice disclosures where required—when publishing generated audio.</p>
+      <h2>5. Acceptable Use</h2>
+      <p>You must not use Voice Studio to impersonate individuals without consent, mislead or defraud listeners, generate unlawful or abusive audio, or evade safety policies.</p>
+      <h2>6. AI Speech Disclaimer &amp; Limitation of Liability</h2>
+      <p>Voice Studio is provided on an &ldquo;as is&rdquo; and &ldquo;as available&rdquo; basis. AI text-to-speech synthesis may occasionally mispronounce specialized terms, numbers, or names; always review generated audio before academic, legal, or commercial reliance. To the fullest extent permitted by law, AlphaAutomates and its developer are not liable for indirect or consequential damages. These terms are governed by the laws of Pakistan.</p>
+      <h2>7. Contact &amp; Support</h2>
+      <p>Voice Studio is maintained by <strong>Moutter Rasool</strong> (AlphaAutomates), Faisalabad, Pakistan. For support, takedown notices, or feedback, please write to us through our <a href="/contact" data-page="contact">Contact page</a>.</p>
     </section>
   </div>
 </main>
 
-<footer class="site-footer">
+<footer class="site-footer" id="siteFooter">
   <div class="wrap">
     <div class="footer-grid">
       <div>
@@ -419,20 +845,21 @@
         <p>Accessible text and document-to-speech workspace built for screen-reader users, students, educators, and creators.</p>
       </div>
       <div>
-        <p class="footer-title">Product &amp; Help</p>
+        <p class="footer-title">Pages</p>
         <ul class="footer-links">
-          <li><a href="#tool">Converter</a></li>
-          <li><a href="#guides">Guides &amp; FAQ</a></li>
-          <li><a href="#about">About</a></li>
-          <li><a href="#contact">Contact</a></li>
+          <li><a href="/" data-page="tool">Home / Converter</a></li>
+          <li><a href="/guides" data-page="guides">Guides &amp; Workflows</a></li>
+          <li><a href="/formats" data-page="formats">Supported Formats</a></li>
+          <li><a href="/faq" data-page="faq">FAQ</a></li>
         </ul>
       </div>
       <div>
         <p class="footer-title">Legal &amp; Support</p>
         <ul class="footer-links">
-          <li><a href="#privacy">Privacy Policy</a></li>
-          <li><a href="#terms">Terms and Conditions</a></li>
-          <li><a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a></li>
+          <li><a href="/about" data-page="about">About</a></li>
+          <li><a href="/contact" data-page="contact">Contact</a></li>
+          <li><a href="/privacy" data-page="privacy">Privacy Policy</a></li>
+          <li><a href="/terms" data-page="terms">Terms and Conditions</a></li>
         </ul>
       </div>
     </div>

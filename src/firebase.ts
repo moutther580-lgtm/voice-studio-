@@ -13,6 +13,7 @@ import {
 } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromServer,
@@ -20,9 +21,11 @@ import {
   getFirestore,
   limit,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
   writeBatch,
   type Unsubscribe,
@@ -34,7 +37,24 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const ADMIN_EMAIL = 'moutther580@gmail.com';
+export const ADMIN_UID = 'T2t9j7YD2JaTsichCnZkFlzxr6w1';
+const ADMIN_EMAIL_SHA256 = '0eac69186c17bf2ac9b7518e47ab997cfeed06f19d74c864e97690e41528826f';
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const hashBuf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function verifyStrictAdmin(user: User | null): Promise<boolean> {
+  if (!user || !user.emailVerified || user.uid !== ADMIN_UID || !user.email) {
+    return false;
+  }
+  const digest = await sha256Hex(user.email.trim().toLowerCase());
+  return digest === ADMIN_EMAIL_SHA256;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -114,6 +134,16 @@ export interface LedgerEntryDoc {
   creditsDelta: number;
   model: string;
   note: string;
+  createdAt?: { toDate?: () => Date };
+}
+
+export interface ContactMessageDoc {
+  id: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: 'unread' | 'read';
   createdAt?: { toDate?: () => Date };
 }
 
@@ -242,55 +272,113 @@ export function subscribeLedger(
 }
 
 export async function checkIsAdmin(user: User): Promise<boolean> {
-  if (!user.emailVerified) return false;
-  if (user.email === ADMIN_EMAIL) return true;
-  const path = `admins/${user.uid}`;
-  try {
-    const snap = await getDoc(doc(db, 'admins', user.uid));
-    return snap.exists();
-  } catch {
-    return false;
-  }
+  return verifyStrictAdmin(user);
 }
 
-export async function adminListWallets(): Promise<UserWalletDoc[]> {
+export async function adminListWallets(): Promise<Array<{ docId: string; wallet: UserWalletDoc }>> {
   const path = 'wallets';
   try {
-    const snap = await getDocs(query(collection(db, path), limit(50)));
-    return snap.docs.map((d) => d.data() as UserWalletDoc);
+    const snap = await getDocs(query(collection(db, path), limit(100)));
+    return snap.docs.map((d) => ({
+      docId: d.id,
+      wallet: { ...(d.data() as UserWalletDoc), uid: (d.data() as UserWalletDoc).uid || d.id },
+    }));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
   }
 }
 
+export async function adminFindWallet(targetInput: string): Promise<{ docId: string; wallet: UserWalletDoc } | null> {
+  const clean = targetInput.trim();
+  if (!clean) return null;
+  const path = `wallets/${clean}`;
+  try {
+    if (clean.includes('@')) {
+      const byEmail = await getDocs(query(collection(db, 'wallets'), where('email', '==', clean), limit(1)));
+      if (!byEmail.empty) {
+        const d = byEmail.docs[0];
+        return { docId: d.id, wallet: d.data() as UserWalletDoc };
+      }
+    }
+    const directSnap = await getDoc(doc(db, 'wallets', clean));
+    if (directSnap.exists()) {
+      return { docId: directSnap.id, wallet: directSnap.data() as UserWalletDoc };
+    }
+    return null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
 export async function adminGrantCredits(
-  targetUid: string,
+  targetInput: string,
   addCredits: number,
   newDailyLimit: number,
   newPlan: 'free' | 'pro',
   note: string
-): Promise<void> {
-  const walletPath = `wallets/${targetUid}`;
+): Promise<UserWalletDoc> {
+  const cleanTarget = targetInput.trim();
+  if (!cleanTarget) {
+    throw new Error('Enter a target user UID or email address first.');
+  }
+
+  let resolvedDocId = cleanTarget;
+  let existing: UserWalletDoc | null = null;
+  const lookupPath = `wallets/${cleanTarget}`;
+
   try {
-    const walletRef = doc(db, 'wallets', targetUid);
-    const snap = await getDoc(walletRef);
-    if (!snap.exists()) {
-      throw new Error('User wallet not found.');
+    const found = await adminFindWallet(cleanTarget);
+    if (found) {
+      resolvedDocId = found.docId;
+      existing = found.wallet;
+    } else if (!cleanTarget.includes('@')) {
+      throw new Error('No wallet found for that UID. Ask the user to sign in once first, or enter their email address.');
     }
-    const existing = snap.data() as UserWalletDoc;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('No wallet found')) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.GET, lookupPath);
+  }
+
+  const walletPath = `wallets/${resolvedDocId}`;
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const walletRef = doc(db, 'wallets', resolvedDocId);
     const entryId = `grant_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const ledgerRef = doc(db, 'ledger', entryId);
 
+    const nextPaidCredits = Math.max(0, (existing?.paidCredits || 0) + addCredits);
+    const nextDailyLimit = Math.max(0, newDailyLimit);
+    const resolvedEmail = existing?.email || (cleanTarget.includes('@') ? cleanTarget : 'unknown@user');
+    const resolvedUidField = existing?.uid || resolvedDocId;
+
     const batch = writeBatch(db);
-    batch.update(walletRef, {
-      paidCredits: Math.max(0, (existing.paidCredits || 0) + addCredits),
-      dailyLimit: Math.max(0, newDailyLimit),
-      plan: newPlan,
-      updatedAt: serverTimestamp(),
-    });
+    if (existing) {
+      batch.update(walletRef, {
+        paidCredits: nextPaidCredits,
+        dailyLimit: nextDailyLimit,
+        plan: newPlan,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      batch.set(walletRef, {
+        uid: resolvedUidField,
+        email: resolvedEmail,
+        paidCredits: nextPaidCredits,
+        dailyUsedChars: 0,
+        dailyDate: today,
+        dailyLimit: nextDailyLimit,
+        totalCharsUsed: 0,
+        plan: newPlan,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
     batch.set(ledgerRef, {
       id: entryId,
-      uid: targetUid,
+      uid: resolvedDocId,
       type: addCredits > 0 ? 'credit_purchase' : 'admin_grant',
       chars: 0,
       creditsDelta: addCredits,
@@ -299,7 +387,119 @@ export async function adminGrantCredits(
       createdAt: serverTimestamp(),
     });
     await batch.commit();
+
+    return {
+      uid: resolvedUidField,
+      email: resolvedEmail,
+      paidCredits: nextPaidCredits,
+      dailyUsedChars: existing?.dailyUsedChars || 0,
+      dailyDate: existing?.dailyDate || today,
+      dailyLimit: nextDailyLimit,
+      totalCharsUsed: existing?.totalCharsUsed || 0,
+      plan: newPlan,
+    };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, walletPath);
+  }
+}
+
+export async function submitContactMessage(input: {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}): Promise<string> {
+  const name = input.name.trim().slice(0, 120);
+  const email = input.email.trim().slice(0, 254);
+  const subject = input.subject.trim().slice(0, 120);
+  const message = input.message.trim().slice(0, 2000);
+
+  if (name.length < 2) {
+    throw new Error('Please enter your full name (at least 2 characters).');
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('Please enter a valid email address so we can reply.');
+  }
+  if (subject.length < 2) {
+    throw new Error('Please choose or enter a message topic.');
+  }
+  if (message.length < 10) {
+    throw new Error('Please write a message of at least 10 characters.');
+  }
+
+  const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const path = `contactMessages/${id}`;
+  try {
+    await setDoc(doc(db, 'contactMessages', id), {
+      id,
+      name,
+      email,
+      subject,
+      message,
+      status: 'unread',
+      createdAt: serverTimestamp(),
+    });
+    return id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function adminListContactMessages(): Promise<ContactMessageDoc[]> {
+  const path = 'contactMessages';
+  try {
+    const snap = await getDocs(query(collection(db, path), orderBy('createdAt', 'desc'), limit(50)));
+    return snap.docs.map((d) => ({ ...(d.data() as ContactMessageDoc), id: d.id }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+}
+
+export async function adminSetContactMessageStatus(
+  messageId: string,
+  status: 'read' | 'unread'
+): Promise<void> {
+  const path = `contactMessages/${messageId}`;
+  try {
+    await updateDoc(doc(db, 'contactMessages', messageId), { status });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function adminDeleteContactMessage(messageId: string): Promise<void> {
+  const path = `contactMessages/${messageId}`;
+  try {
+    await deleteDoc(doc(db, 'contactMessages', messageId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function adminListRecentLedger(): Promise<LedgerEntryDoc[]> {
+  const path = 'ledger';
+  try {
+    const snap = await getDocs(query(collection(db, path), orderBy('createdAt', 'desc'), limit(40)));
+    return snap.docs.map((d) => ({ ...(d.data() as LedgerEntryDoc), id: d.id }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+}
+
+export interface UserProfileDoc {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: 'user' | 'admin';
+  createdAt?: { toDate?: () => Date };
+}
+
+export async function adminListUsers(): Promise<UserProfileDoc[]> {
+  const path = 'users';
+  try {
+    const snap = await getDocs(query(collection(db, path), limit(100)));
+    return snap.docs.map((d) => ({ ...(d.data() as UserProfileDoc), uid: (d.data() as UserProfileDoc).uid || d.id }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
   }
 }

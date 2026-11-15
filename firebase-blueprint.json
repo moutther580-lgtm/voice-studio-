@@ -41,8 +41,8 @@
       "properties": {
         "uid": {
           "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "maxLength": 254,
+          "pattern": "^[a-zA-Z0-9_\\-.@+]+$"
         },
         "email": {
           "type": "string",
@@ -99,8 +99,8 @@
         },
         "uid": {
           "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "maxLength": 254,
+          "pattern": "^[a-zA-Z0-9_\\-.@+]+$"
         },
         "type": {
           "type": "string",
@@ -148,6 +148,47 @@
         }
       },
       "required": ["uid", "email", "createdAt"]
+    },
+    "ContactMessage": {
+      "title": "ContactMessage",
+      "description": "In-page visitor and user support message submitted directly to the administrator.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "message": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["unread", "read"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "email", "subject", "message", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -166,6 +207,10 @@
     "/admins/{userId}": {
       "schema": { "$ref": "#/entities/AdminRecord" },
       "description": "Admin access registry."
+    },
+    "/contactMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/ContactMessage" },
+      "description": "In-app visitor contact form submissions accessible only to the administrator."
     }
   }
 }
