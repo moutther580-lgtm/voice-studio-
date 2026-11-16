@@ -348,21 +348,7 @@
         </div>
 
         <div class="card">
-          <h2>1. Voice, format, and options</h2>
-          <div class="row">
-            <div>
-              <label for="model">Model</label>
-              <select id="model"></select>
-            </div>
-            <div>
-              <label for="mode">Narration mode</label>
-              <select id="mode">
-                <option value="single">Single voice (books, syllabi, articles)</option>
-                <option value="dialogue">Dialogue / 2 speakers (podcasts, scripts)</option>
-              </select>
-            </div>
-          </div>
-
+          <h2>1. Voice &amp; speaking style</h2>
           <div class="row">
             <div>
               <label id="voiceLabel" for="voice">Voice</label>
@@ -372,35 +358,56 @@
               <label for="voiceB">Speaker B voice</label>
               <select id="voiceB"></select>
             </div>
+            <div>
+              <label for="mode">Narration mode</label>
+              <select id="mode">
+                <option value="single">Single voice (books, articles)</option>
+                <option value="dialogue">Dialogue / 2 speakers (podcasts)</option>
+              </select>
+            </div>
           </div>
 
           <p id="dialogueHint" class="hint" hidden>Prefix lines with <strong>Host:</strong> / <strong>Guest:</strong> or <strong>A:</strong> / <strong>B:</strong> to switch speakers automatically.</p>
 
-          <label for="style">Style instruction (optional)</label>
-          <input id="style" placeholder="For example: slowly, clearly, and calmly">
-
-          <div class="row">
-            <div>
-              <label for="format">Audio output format</label>
-              <select id="format">
-                <option value="mp3">MP3 (compressed, small file size)</option>
-                <option value="wav">WAV (uncompressed PCM)</option>
-              </select>
-            </div>
-            <div id="mp3QualityWrap">
-              <label for="mp3Kbps">MP3 quality</label>
-              <select id="mp3Kbps">
-                <option value="64">64 kbps (speech optimized, smallest)</option>
-                <option value="128">128 kbps (higher music/voice fidelity)</option>
-              </select>
-            </div>
+          <label for="style">Speaking style / tone (optional — guides delivery, never spoken aloud)</label>
+          <input id="style" placeholder="For example: slowly, clearly, and calmly" aria-describedby="styleHint">
+          <p id="styleHint" class="hint">Describe how the narrator should sound. Leave blank for standard natural delivery.</p>
+          <div class="btn-group compact-actions" role="group" aria-label="Quick speaking style presets">
+            <button type="button" class="sec style-preset-btn" data-style="slowly, clearly, and calmly">Slow &amp; calm</button>
+            <button type="button" class="sec style-preset-btn" data-style="warm, expressive audiobook storyteller">Warm storyteller</button>
+            <button type="button" class="sec style-preset-btn" data-style="clear, crisp news anchor">News anchor</button>
+            <button type="button" class="sec style-preset-btn" data-style="">Reset style</button>
           </div>
 
-          <div class="row">
-            <div><label for="chunk">Characters per part</label><input id="chunk" type="number" min="300" max="3000" value="1800"></div>
-            <div><label for="pause">Pause between requests (seconds)</label><input id="pause" type="number" min="0" max="60" value="1"></div>
-            <div><label for="sil">Silence between parts (milliseconds)</label><input id="sil" type="number" min="0" max="3000" value="250"></div>
-          </div>
+          <details class="panel" id="advancedSettingsPanel">
+            <summary id="advancedSummary">Audio format &amp; advanced settings (MP3 64 kbps)</summary>
+            <div class="row">
+              <div>
+                <label for="model">Speech model</label>
+                <select id="model"></select>
+              </div>
+              <div>
+                <label for="format">Audio output format</label>
+                <select id="format">
+                  <option value="mp3">MP3 (compressed, small file size)</option>
+                  <option value="wav">WAV (uncompressed PCM)</option>
+                </select>
+              </div>
+              <div id="mp3QualityWrap">
+                <label for="mp3Kbps">MP3 quality</label>
+                <select id="mp3Kbps">
+                  <option value="64">64 kbps (speech optimized, smallest)</option>
+                  <option value="128">128 kbps (higher fidelity)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row">
+              <div><label for="chunk">Characters per part</label><input id="chunk" type="number" min="300" max="3000" value="1800"></div>
+              <div><label for="pause">Pause between requests (seconds)</label><input id="pause" type="number" min="0" max="60" value="1"></div>
+              <div><label for="sil">Silence between parts (milliseconds)</label><input id="sil" type="number" min="0" max="3000" value="250"></div>
+            </div>
+          </details>
 
           <details class="panel" id="byokPanel">
             <summary id="byokSummary">Own Gemini API Key (optional Unlimited Mode)</summary>
@@ -451,9 +458,10 @@
           <textarea id="text" placeholder="Type, paste, or drop a PDF, DOCX, EPUB, Markdown, or TXT file here"></textarea>
 
           <div class="btn-group">
-            <button id="paste" type="button" class="sec">Paste from clipboard</button>
             <button id="load" type="button" class="sec">Load PDF, DOCX, EPUB or TXT</button>
-            <button id="sampleSingle" type="button" class="sec">Insert sample text</button>
+            <button id="paste" type="button" class="sec">Paste from clipboard</button>
+            <button id="voiceDemo" type="button" class="sec">Test selected voice</button>
+            <button id="sampleSingle" type="button" class="sec">Insert sample script</button>
             <button id="sampleDialogue" type="button" class="sec" hidden>Insert sample dialogue</button>
             <button id="clear" type="button" class="sec">Clear text</button>
           </div>

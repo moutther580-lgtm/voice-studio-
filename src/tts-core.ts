@@ -8,10 +8,10 @@ import type {
 } from './types';
 
 export const MODELS = [
-  { id: 'gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS (free-tier compatible)', ratePer1MAudioTokens: 10.0 },
-  { id: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash TTS (broad compatibility)', ratePer1MAudioTokens: 6.0 },
-  { id: 'gemini-3.8-flash-tts', label: 'Gemini 3.8 Flash TTS (latest generation)', ratePer1MAudioTokens: 9.0 },
-  { id: 'gemini-3.8-flash-lite-tts', label: 'Gemini 3.8 Flash-Lite TTS (faster, lower cost)', ratePer1MAudioTokens: 6.0 },
+  { id: 'gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS Preview (Urdu & English, default)', ratePer1MAudioTokens: 10.0 },
+  { id: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash TTS (broad free-tier compatibility)', ratePer1MAudioTokens: 6.0 },
+  { id: 'gemini-3.8-flash-lite-tts', label: 'Gemini 3.8 Flash-Lite TTS (low latency)', ratePer1MAudioTokens: 6.0 },
+  { id: 'gemini-3.8-flash-tts', label: 'Gemini 3.8 Flash TTS (expressive / dialogue)', ratePer1MAudioTokens: 9.0 },
   { id: 'gemini-2.5-pro-preview-tts', label: 'Gemini 2.5 Pro TTS (high fidelity studio)', ratePer1MAudioTokens: 12.0 },
 ] as const;
 
@@ -20,8 +20,8 @@ export function getModelFallbackOrder(preferredModel: string): string[] {
     preferredModel,
     'gemini-3.1-flash-tts-preview',
     'gemini-2.5-flash-preview-tts',
-    'gemini-3.8-flash-tts',
     'gemini-3.8-flash-lite-tts',
+    'gemini-3.8-flash-tts',
     'gemini-2.5-pro-preview-tts',
   ];
   return [...new Set(ordered.filter((id) => MODELS.some((m) => m.id === id)))];
@@ -190,18 +190,23 @@ export function newer(model: string): boolean {
 }
 
 export function buildBody(model: string, voice: string, style: string, text: string) {
-  const cleanStyle = (style || '').trim();
-  const generationConfig: Record<string, unknown> = { responseModalities: ['AUDIO'] };
+  const cleanStyle = (style || '').trim().slice(0, 200);
+  const voiceConfig = { prebuiltVoiceConfig: { voiceName: voice } };
+  const generationConfig: Record<string, unknown> = {
+    responseModalities: ['AUDIO'],
+    speechConfig: { voiceConfig },
+  };
   let parts: Record<string, unknown>[];
 
   if (newer(model)) {
     const p: Record<string, unknown> = { text };
-    if (cleanStyle) p.speech_metadata = { style: cleanStyle };
+    if (cleanStyle) p.speechMetadata = { style: cleanStyle };
     parts = [p];
-    generationConfig.speechConfig = { voiceConfig: { voice } };
   } else {
-    parts = [{ text: cleanStyle ? `Say ${cleanStyle}:\n${text}` : text }];
-    generationConfig.speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } };
+    const formatted = cleanStyle
+      ? `Audio Profile: Speak in this delivery style only (never read these directions aloud): ${cleanStyle}\n\n#### TRANSCRIPT\n${text}`
+      : text;
+    parts = [{ text: formatted }];
   }
   return { contents: [{ role: 'user', parts }], generationConfig };
 }

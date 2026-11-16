@@ -124,6 +124,8 @@ let audioUrl: string | null = null;
 let lastBlob: Blob | null = null;
 let lastName = '';
 let loadedDocTitle = '';
+let currentTextOrigin: 'user' | 'sample' | 'doc' = 'user';
+let sampleReplaceArmed = false;
 const sessionTitleCounts = new Map<string, number>();
 
 const loadedCfg = store.get<Partial<VoiceConfig>>('vs.cfg', {});
@@ -450,26 +452,43 @@ document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
 
 function renderServerHealthStatus(state: 'checking' | 'ready' | 'nokey' | 'missing404' | 'offline') {
   const el = document.getElementById('serverHealthStatus');
-  if (!el) return;
-  el.classList.remove('status-ok', 'status-bad', 'status-mut');
-  if (state === 'checking') {
-    el.classList.add('status-mut');
-    el.textContent = 'Speech server status: Checking connection…';
-  } else if (state === 'ready') {
-    el.classList.add('status-ok');
-    el.textContent = 'Speech server status: Connected — server speech key is active and ready.';
-  } else if (state === 'nokey') {
-    el.classList.add('status-bad');
-    el.textContent =
-      'Speech server status: Server is online, but no server speech key is active yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or add your key in hosting secrets.';
-  } else if (state === 'missing404') {
-    el.classList.add('status-bad');
-    el.textContent =
-      'Speech server status: Backend API returned 404 on this URL. Re-deploy with Worker/API routes, or turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
-  } else {
-    el.classList.add('status-bad');
-    el.textContent =
-      'Speech server status: Could not verify backend right now. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 if needed.';
+  if (el) {
+    el.classList.remove('status-ok', 'status-bad', 'status-mut');
+    if (state === 'checking') {
+      el.classList.add('status-mut');
+      el.textContent = 'Speech server status: Checking connection…';
+    } else if (state === 'ready') {
+      el.classList.add('status-ok');
+      el.textContent = 'Speech server status: Connected — server speech key is active and ready.';
+    } else if (state === 'nokey') {
+      el.classList.add('status-bad');
+      el.textContent =
+        'Speech server status: Server is online, but no server speech key is active yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or add GEMINI_API_KEY in hosting secrets.';
+    } else if (state === 'missing404') {
+      el.classList.add('status-bad');
+      el.textContent =
+        'Speech server status: Backend API returned 404 on this URL. Re-deploy with Worker/API routes, or turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
+    } else {
+      el.classList.add('status-bad');
+      el.textContent =
+        'Speech server status: Backend speech endpoint could not be verified right now. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 if needed.';
+    }
+  }
+
+  const notice = document.getElementById('backendNotice');
+  if (notice) {
+    if (!isByokActive() && (state === 'nokey' || state === 'missing404' || state === 'offline')) {
+      notice.hidden = false;
+      notice.textContent =
+        state === 'nokey'
+          ? 'Shared server speech key is not configured on this server yet. Open Step 1 → Own Gemini API Key (Unlimited Mode) to generate audio with your free key, or add GEMINI_API_KEY in hosting secrets.'
+          : state === 'missing404'
+            ? 'Speech server route was not found on this deployment. Open Step 1 → Own Gemini API Key (Unlimited Mode) to generate audio directly from your browser.'
+            : 'Shared speech server returned an error checking availability. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 anytime.';
+    } else if (state === 'ready' || isByokActive()) {
+      notice.hidden = true;
+      notice.textContent = '';
+    }
   }
 }
 
@@ -1581,6 +1600,14 @@ function populateSelects() {
   });
 }
 
+function syncAdvancedSummary() {
+  const summaryEl = document.getElementById('advancedSummary');
+  if (!summaryEl) return;
+  const fmtText = cfg.format === 'mp3' ? `MP3 ${cfg.mp3Kbps} kbps` : 'WAV 24 kHz';
+  const modelShort = MODELS.find((m) => m.id === cfg.model)?.label.split('(')[0].trim() || cfg.model;
+  summaryEl.textContent = `Audio format & advanced settings (${fmtText} · ${modelShort})`;
+}
+
 function syncOptionVisibility() {
   const isDialogue = cfg.mode === 'dialogue';
   $('#voiceBWrap').hidden = !isDialogue;
@@ -1589,6 +1616,7 @@ function syncOptionVisibility() {
   $('#sampleDialogue').hidden = !isDialogue;
   $('#voiceLabel').textContent = isDialogue ? 'Speaker A voice' : 'Voice';
   $('#mp3QualityWrap').hidden = cfg.format !== 'mp3';
+  syncAdvancedSummary();
 }
 
 function syncByokUi() {
@@ -1599,6 +1627,11 @@ function syncByokUi() {
     $('#byokSummary').textContent = 'Own Gemini API Key (enter key to activate Unlimited Mode)';
   } else {
     $('#byokSummary').textContent = 'Own Gemini API Key (optional Unlimited Mode)';
+  }
+  const notice = document.getElementById('backendNotice');
+  if (notice && isByokActive()) {
+    notice.hidden = true;
+    notice.textContent = '';
   }
 }
 
@@ -1698,6 +1731,7 @@ function bindSettings() {
 
   $('#model').addEventListener('change', (e) => {
     cfg.model = (e.target as HTMLSelectElement).value;
+    syncAdvancedSummary();
     saveCfg();
     updateCounts();
   });
@@ -1717,6 +1751,15 @@ function bindSettings() {
   $('#style').addEventListener('input', (e) => {
     cfg.style = (e.target as HTMLInputElement).value;
     saveCfg();
+  });
+  document.querySelectorAll<HTMLButtonElement>('.style-preset-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.style || '';
+      cfg.style = val;
+      $<HTMLInputElement>('#style').value = val;
+      saveCfg();
+      say(val ? `Speaking style set to: ${val}.` : 'Speaking style cleared.');
+    });
   });
   $('#chunk').addEventListener('input', () => {
     cfg.chunk = num('#chunk', 300, 3000, 1800);
@@ -1738,6 +1781,7 @@ function bindSettings() {
   });
   $('#mp3Kbps').addEventListener('change', (e) => {
     cfg.mp3Kbps = Number((e.target as HTMLSelectElement).value) === 128 ? 128 : 64;
+    syncAdvancedSummary();
     saveCfg();
   });
   $('#cleanDocs').addEventListener('change', (e) => {
@@ -1750,7 +1794,11 @@ function bindSettings() {
     saveCfg();
   });
 
-  $('#text').addEventListener('input', updateCounts);
+  $('#text').addEventListener('input', () => {
+    currentTextOrigin = 'user';
+    sampleReplaceArmed = false;
+    updateCounts();
+  });
   syncOptionVisibility();
   syncByokUi();
   updateCounts();
@@ -2020,6 +2068,13 @@ async function callServerTts(
     };
   }
 
+  if (res.status === 500) {
+    const serverMsg =
+      data.error ||
+      'The shared speech server hit an unexpected error (500). Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or check your server environment variables.';
+    return { kind: 'bad', msg: serverMsg };
+  }
+
   const msg = data.error || `Server error (${res.status}).`;
   if (res.status === 401 || res.status === 403) return { kind: 'auth', msg };
   if (res.status === 429) {
@@ -2038,6 +2093,7 @@ function ui() {
   const busy = running || previewing || extracting;
   $<HTMLButtonElement>('#gen').disabled = busy;
   $<HTMLButtonElement>('#prev').disabled = busy;
+  $<HTMLButtonElement>('#voiceDemo').disabled = busy;
   $<HTMLButtonElement>('#clear').disabled = busy;
   $<HTMLButtonElement>('#paste').disabled = busy;
   $<HTMLButtonElement>('#load').disabled = busy;
@@ -2053,8 +2109,9 @@ function ui() {
   $<HTMLSelectElement>('#mp3Kbps').disabled = running;
 
   $('#cancel').hidden = !running;
-  $('#resume').hidden = busy || !job || job.done >= job.items.length;
-  $('#prog').hidden = !job;
+  const canResume = Boolean(job && job.done < job.items.length);
+  $('#resume').hidden = busy || !canResume;
+  $('#prog').hidden = !running && !canResume;
 }
 
 function fail(m: string) {
@@ -2080,6 +2137,11 @@ async function finishOutput(currentJob: GenerationJob) {
   }
 
   running = false;
+  job = null;
+  progEl.value = 0;
+  progEl.setAttribute('aria-valuetext', '0 percent');
+  progEl.hidden = true;
+
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   audioUrl = URL.createObjectURL(blob);
 
@@ -2243,11 +2305,42 @@ $('#cancel').onclick = () => {
   if (ctl) ctl.abort();
 };
 
+async function playQuickAudioClip(text: string, voice: string, announceLabel: string) {
+  previewing = true;
+  ui();
+  say(`Generating ${announceLabel}…`);
+
+  const result = await callServerTts(cfg.model, voice, cfg.style, text);
+  previewing = false;
+  ui();
+
+  if (result.kind !== 'ok') {
+    sayError(`${announceLabel} failed: ${result.msg}`);
+    return;
+  }
+
+  const o = toPcm(result.d);
+  const u = URL.createObjectURL(wavBlob([o.pcm], o.rate, 0));
+  const a = new Audio(u);
+  a.playbackRate = cfg.speed;
+  a.onended = () => URL.revokeObjectURL(u);
+  a.onerror = () => URL.revokeObjectURL(u);
+  a.play()
+    .then(() => say(`Playing ${announceLabel}.`))
+    .catch(() => say(`The ${announceLabel} is ready, but your browser blocked playback.`));
+}
+
+$('#voiceDemo').onclick = async () => {
+  if (!requireSignedInUser()) return;
+  const demoLine = `Hello! You are testing the ${cfg.voice} voice in Voice Studio. Your own text box stays untouched.`;
+  await playQuickAudioClip(demoLine, cfg.voice, `${cfg.voice} voice demo`);
+};
+
 $('#prev').onclick = async () => {
   if (!requireSignedInUser()) return;
   const raw = $<HTMLTextAreaElement>('#text').value.trim();
   if (!raw) {
-    say('Type some text to preview first.');
+    say('Type some text to preview first, or press Test selected voice.');
     $('#text').focus();
     return;
   }
@@ -2259,39 +2352,27 @@ $('#prev').onclick = async () => {
     return;
   }
 
-  previewing = true;
-  ui();
-  say('Generating the preview…');
-
-  const result = await callServerTts(cfg.model, firstItem.voice, cfg.style, firstItem.text);
-  previewing = false;
-  ui();
-
-  if (result.kind !== 'ok') {
-    sayError(`Preview failed: ${result.msg}`);
-    return;
-  }
-
-  const o = toPcm(result.d);
-  const u = URL.createObjectURL(wavBlob([o.pcm], o.rate, 0));
-  const a = new Audio(u);
-  a.playbackRate = cfg.speed;
-  a.onended = () => URL.revokeObjectURL(u);
-  a.onerror = () => URL.revokeObjectURL(u);
-  a.play()
-    .then(() => say('Playing the preview.'))
-    .catch(() => say('The preview is ready, but your browser blocked playback.'));
+  await playQuickAudioClip(firstItem.text, firstItem.voice, 'preview');
 };
 
 /* ---- Text Helpers, Document Import & Drag/Drop ---- */
-function setText(t: string) {
+function setText(t: string, origin: 'user' | 'sample' | 'doc' = 'user') {
   const el = $<HTMLTextAreaElement>('#text');
   el.value = t;
-  el.dispatchEvent(new Event('input'));
+  updateCounts();
+  currentTextOrigin = origin;
+  sampleReplaceArmed = false;
 }
 
 $('#clear').onclick = () => {
-  setText('');
+  if (!running) {
+    job = null;
+    const progEl = $<HTMLProgressElement>('#prog');
+    progEl.value = 0;
+    progEl.setAttribute('aria-valuetext', '0 percent');
+    ui();
+  }
+  setText('', 'user');
   loadedDocTitle = '';
   $<HTMLInputElement>('#audioTitle').value = '';
   say('Text cleared.');
@@ -2310,32 +2391,48 @@ $('#paste').onclick = async () => {
       titleEl.value = '';
     }
     loadedDocTitle = '';
-    setText(t);
-    say(`Pasted ${[...t].length.toLocaleString()} characters.`);
+    const wasSample = currentTextOrigin === 'sample';
+    setText(t, 'user');
+    say(
+      wasSample
+        ? `Replaced sample text with ${[...t].length.toLocaleString()} pasted characters.`
+        : `Pasted ${[...t].length.toLocaleString()} characters.`
+    );
   } catch {
     say('Your browser did not allow clipboard access. Paste with Ctrl+V instead.');
     $('#text').focus();
   }
 };
 
-$('#sampleSingle').onclick = () => {
+function insertSampleWithGuard(sampleText: string, okMsg: string) {
+  const current = $<HTMLTextAreaElement>('#text').value.trim();
+  if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
+    sampleReplaceArmed = true;
+    say(
+      'Your text box already has text. Press Insert sample script again to replace it, or press Test selected voice to hear the voice without changing your text.'
+    );
+    return;
+  }
   loadedDocTitle = '';
-  setText(
-    'Voice Studio converts study notes, PDF textbooks, and bilingual English or Urdu paragraphs into clear speech you can download as a single MP3 or WAV file.'
-  );
-  say('Inserted sample text. Press Preview first 200 characters or Generate audio.');
+  setText(sampleText, 'sample');
+  say(okMsg);
   $('#text').focus();
+}
+
+$('#sampleSingle').onclick = () => {
+  insertSampleWithGuard(
+    'Voice Studio converts study notes, PDF textbooks, and bilingual English or Urdu paragraphs into clear speech you can download as a single MP3 or WAV file.',
+    'Inserted sample script. Clear text or paste your own before converting real notes.'
+  );
 };
 
 $('#sampleDialogue').onclick = () => {
-  loadedDocTitle = '';
-  setText(
+  insertSampleWithGuard(
     'Host: Welcome back to our study session. Today we are reviewing how long-form text-to-speech works.\n' +
       'Guest: Thanks for having me. Splitting text at natural sentence boundaries keeps the pacing smooth and easy to follow.\n' +
-      'Host: Let us test two different Gemini voices in one audio file!'
+      'Host: Let us test two different Gemini voices in one audio file!',
+    'Inserted a sample dialogue script. Edit it or clear text before pasting your own.'
   );
-  say('Inserted a sample dialogue script. Edit it or press Generate audio.');
-  $('#text').focus();
 };
 
 async function handleSelectedFile(f: File) {
@@ -2355,7 +2452,7 @@ async function handleSelectedFile(f: File) {
     if (!titleEl.value.trim() || titleEl.value.trim() === prevDocTitle) {
       titleEl.value = loadedDocTitle;
     }
-    setText(res.text);
+    setText(res.text, 'doc');
     const details: string[] = [res.formatLabel];
     if (res.pages) details.push(`${res.pages} pages`);
     if (res.chapters) details.push(`${res.chapters} chapters`);

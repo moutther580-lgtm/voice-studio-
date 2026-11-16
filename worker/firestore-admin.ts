@@ -25,7 +25,8 @@ async function getGoogleAccessToken(creds: ServiceAccountCreds): Promise<string>
     return cachedToken.token;
   }
 
-  const pem = creds.private_key.replace(/\\n/g, '\n').trim();
+  const rawKey = String(creds.private_key || '').trim().replace(/^"(.*)"$/, '$1');
+  const pem = rawKey.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n').trim();
   const key = await importPKCS8(pem, 'RS256');
   const assertion = await new SignJWT({
     scope: 'https://www.googleapis.com/auth/datastore',

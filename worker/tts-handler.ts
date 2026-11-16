@@ -1,11 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import firebaseConfig from '../firebase-applet-config.json';
 import {
   commitFirestoreUsage,
   getFirestoreWallet,
   type ServiceAccountCreds,
   type WalletSnapshot,
 } from './firestore-admin';
+
+const FIREBASE_PROJECT_ID = 'voice-studio-b6bb1';
+const FIRESTORE_DATABASE_ID = 'ai-studio-voicestudio-54f73766-0cc2-4833-94d7-e7ac9b2c2e3f';
 
 export interface KVLike {
   get(key: string): Promise<string | null>;
@@ -14,6 +16,7 @@ export interface KVLike {
 
 export interface WorkerEnv {
   GEMINI_API_KEY?: string;
+  GOOGLE_GENERATIVE_AI_API_KEY?: string;
   DAILY_FREE_CHAR_LIMIT?: string;
   GLOBAL_DAILY_FREE_CHARS?: string;
   FIREBASE_SERVICE_ACCOUNT_JSON?: string;
@@ -37,8 +40,8 @@ function getFallbackModels(preferred: string): string[] {
     preferred,
     'gemini-3.1-flash-tts-preview',
     'gemini-2.5-flash-preview-tts',
-    'gemini-3.8-flash-tts',
     'gemini-3.8-flash-lite-tts',
+    'gemini-3.8-flash-tts',
     'gemini-2.5-pro-preview-tts',
   ];
   return [...new Set(order.filter((id) => ALLOWED_MODELS.has(id)))];
@@ -88,17 +91,22 @@ function newerModel(model: string): boolean {
 
 function buildGeminiBody(model: string, voice: string, style: string, text: string) {
   const cleanStyle = (style || '').trim().slice(0, 200);
-  const generationConfig: Record<string, unknown> = { responseModalities: ['AUDIO'] };
+  const voiceConfig = { prebuiltVoiceConfig: { voiceName: voice } };
+  const generationConfig: Record<string, unknown> = {
+    responseModalities: ['AUDIO'],
+    speechConfig: { voiceConfig },
+  };
   let parts: Record<string, unknown>[];
 
   if (newerModel(model)) {
     const p: Record<string, unknown> = { text };
-    if (cleanStyle) p.speech_metadata = { style: cleanStyle };
+    if (cleanStyle) p.speechMetadata = { style: cleanStyle };
     parts = [p];
-    generationConfig.speechConfig = { voiceConfig: { voice } };
   } else {
-    parts = [{ text: cleanStyle ? `Say ${cleanStyle}:\n${text}` : text }];
-    generationConfig.speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } };
+    const formatted = cleanStyle
+      ? `Audio Profile: Speak in this delivery style only (never read these directions aloud): ${cleanStyle}\n\n#### TRANSCRIPT\n${text}`
+      : text;
+    parts = [{ text: formatted }];
   }
   return { contents: [{ role: 'user', parts }], generationConfig };
 }
@@ -116,10 +124,9 @@ async function verifyFirebaseUser(request: Request): Promise<VerifiedUser | Resp
   }
 
   try {
-    const projectId = firebaseConfig.projectId;
     const { payload } = await jwtVerify(match[1], FIREBASE_JWKS, {
-      issuer: `https://securetoken.google.com/${projectId}`,
-      audience: projectId,
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
     });
 
     const uid = typeof payload.sub === 'string' ? payload.sub : '';
@@ -140,9 +147,16 @@ async function verifyFirebaseUser(request: Request): Promise<VerifiedUser | Resp
 
 function parseServiceAccount(raw?: string): ServiceAccountCreds | null {
   if (!raw || !raw.trim()) return null;
+  let candidate = raw.trim();
+  if (candidate.startsWith("'") && candidate.endsWith("'")) {
+    candidate = candidate.slice(1, -1);
+  }
   try {
-    const parsed = JSON.parse(raw) as Partial<ServiceAccountCreds>;
-    if (parsed.client_email && parsed.private_key) {
+    let parsed = JSON.parse(candidate) as Partial<ServiceAccountCreds> | string;
+    if (typeof parsed === 'string') {
+      parsed = JSON.parse(parsed) as Partial<ServiceAccountCreds>;
+    }
+    if (parsed && typeof parsed === 'object' && parsed.client_email && parsed.private_key) {
       return {
         client_email: parsed.client_email,
         private_key: parsed.private_key,
@@ -163,19 +177,27 @@ async function loadQuotaState(user: VerifiedUser, env: WorkerEnv) {
   const globalUsed = parseIntEnv((await kv.get(`global:${today}`)) || '0', 0);
 
   const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  let wallet: WalletSnapshot;
+  let wallet: WalletSnapshot | null = null;
+  let firestoreActive = false;
 
   if (creds) {
-    wallet = await getFirestoreWallet(
-      creds,
-      firebaseConfig.projectId,
-      firebaseConfig.firestoreDatabaseId,
-      user.uid,
-      user.email,
-      today,
-      defaultDailyLimit
-    );
-  } else {
+    try {
+      wallet = await getFirestoreWallet(
+        creds,
+        FIREBASE_PROJECT_ID,
+        FIRESTORE_DATABASE_ID,
+        user.uid,
+        user.email,
+        today,
+        defaultDailyLimit
+      );
+      firestoreActive = true;
+    } catch (err) {
+      console.warn('[voice-studio] Firestore wallet lookup fell back to KV:', err);
+    }
+  }
+
+  if (!wallet) {
     const userUsed = parseIntEnv((await kv.get(`user:${user.uid}:${today}`)) || '0', 0);
     wallet = {
       uid: user.uid,
@@ -194,7 +216,7 @@ async function loadQuotaState(user: VerifiedUser, env: WorkerEnv) {
 
   return {
     kv,
-    creds,
+    creds: firestoreActive ? creds : null,
     today,
     globalUsed,
     globalCap,
@@ -204,14 +226,20 @@ async function loadQuotaState(user: VerifiedUser, env: WorkerEnv) {
   };
 }
 
+function resolveGeminiKey(env: WorkerEnv): string {
+  return (env.GEMINI_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY || '').trim();
+}
+
 export async function handleApiRequest(request: Request, env: WorkerEnv): Promise<Response> {
-  const url = new URL(request.url);
+  const url = new URL(request.url, 'https://voice-studio.local');
+  const apiKey = resolveGeminiKey(env);
 
   if (url.pathname === '/api/health') {
     return json({
       ok: true,
       service: 'voice-studio-worker',
-      backendConfigured: Boolean(env.GEMINI_API_KEY),
+      backendConfigured: Boolean(apiKey),
+      dailyLimit: parseIntEnv(env.DAILY_FREE_CHAR_LIMIT, 3000),
     });
   }
 
@@ -231,7 +259,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
         totalCharsUsed: state.wallet.totalCharsUsed,
         plan: state.wallet.plan,
         globalRemaining: state.globalRemaining,
-        backendConfigured: Boolean(env.GEMINI_API_KEY),
+        backendConfigured: Boolean(apiKey),
       });
     } catch {
       return json({ error: 'Could not load your quota right now.' }, 500);
@@ -242,11 +270,12 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
     const userOrErr = await verifyFirebaseUser(request);
     if (userOrErr instanceof Response) return userOrErr;
 
-    if (!env.GEMINI_API_KEY) {
+    if (!apiKey) {
       return json(
         {
           error:
-            'Shared server speech engine is temporarily unavailable. You can enable Own Gemini API Key (Unlimited Mode) in Step 1.',
+            'Shared server speech engine is not configured on this server yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or add GEMINI_API_KEY in hosting environment variables.',
+          code: 'BACKEND_KEY_MISSING',
         },
         503
       );
@@ -328,7 +357,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-goog-api-key': env.GEMINI_API_KEY,
+            'x-goog-api-key': apiKey,
           },
           body: JSON.stringify(buildGeminiBody(candidateModel, voice, style, text)),
         });
@@ -395,8 +424,8 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       if (state.creds) {
         await commitFirestoreUsage(
           state.creds,
-          firebaseConfig.projectId,
-          firebaseConfig.firestoreDatabaseId,
+          FIREBASE_PROJECT_ID,
+          FIRESTORE_DATABASE_ID,
           updatedWallet,
           charCount,
           paidNeeded,
