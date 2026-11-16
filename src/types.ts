@@ -60,12 +60,41 @@ export interface InlineAudioData {
   mimeType?: string;
 }
 
+export interface ChapterItem {
+  title: string;
+  text: string;
+}
+
+export interface OutlineEntry {
+  title: string;
+  pageNumber: number;
+}
+
 export interface DocExtractResult {
   text: string;
   pages?: number;
+  pagesText?: string[];
+  outlineItems?: OutlineEntry[];
   chapters?: number;
+  chaptersList?: ChapterItem[];
   removedLines?: number;
   formatLabel: string;
+}
+
+export type PdfAgentOutputMode = 'verbatim' | 'narrated' | 'summary' | 'podcast';
+
+export interface PdfAgentPlan {
+  startPage: number;
+  endPage: number;
+  extraPages?: number[];
+  sectionTitle: string;
+  reason: string;
+}
+
+export interface SubtitleSegment {
+  text: string;
+  startSec: number;
+  endSec: number;
 }
 
 export interface QuotaState {

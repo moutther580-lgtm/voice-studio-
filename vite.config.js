@@ -1,47 +1,102 @@
 import { defineConfig } from 'vite';
 
+function createNodeWebReq(req, body) {
+  const origin = `http://${req.headers.host || 'localhost:3000'}`;
+  return new Request(origin + req.url, {
+    method: req.method || 'GET',
+    headers: Object.entries(req.headers).reduce((acc, [k, v]) => {
+      if (typeof v === 'string') acc[k] = v;
+      else if (Array.isArray(v)) acc[k] = v.join(', ');
+      return acc;
+    }, {}),
+    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
+  });
+}
+
+function getLocalEnv() {
+  return {
+    GEMINI_API_KEY:
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.GEMINI_KEY,
+    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+    GEMINI_KEY: process.env.GEMINI_KEY,
+    DAILY_FREE_CHAR_LIMIT: process.env.DAILY_FREE_CHAR_LIMIT || '3000',
+    GLOBAL_DAILY_FREE_CHARS: process.env.GLOBAL_DAILY_FREE_CHARS || '100000',
+    FIREBASE_SERVICE_ACCOUNT_JSON: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+  };
+}
+
+async function readReqBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return chunks.length ? Buffer.concat(chunks) : undefined;
+}
+
 function localApiDevPlugin() {
+  let cachedPreviewHandler = null;
+
+  async function loadHandler(devServer) {
+    if (devServer && typeof devServer.ssrLoadModule === 'function') {
+      const mod = await devServer.ssrLoadModule('/worker/tts-handler.ts');
+      return mod.handleApiRequest;
+    }
+    if (!cachedPreviewHandler) {
+      const { build } = await import('esbuild');
+      const result = await build({
+        entryPoints: ['worker/tts-handler.ts'],
+        bundle: true,
+        format: 'esm',
+        platform: 'node',
+        write: false,
+      });
+      const code = result.outputFiles[0].text;
+      const modUrl = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+      const mod = await import(modUrl);
+      cachedPreviewHandler = mod.handleApiRequest;
+    }
+    return cachedPreviewHandler;
+  }
+
+  function attachMiddleware(middlewares, devServer) {
+    middlewares.use(async (req, res, next) => {
+      if (!req.url || !req.url.startsWith('/api/')) {
+        return next();
+      }
+      try {
+        const handleApiRequest = await loadHandler(devServer);
+        const body = await readReqBody(req);
+        const webReq = createNodeWebReq(req, body);
+        const webRes = await handleApiRequest(webReq, getLocalEnv());
+        res.statusCode = webRes.status;
+        webRes.headers.forEach((v, k) => res.setHeader(k, v));
+        const buf = Buffer.from(await webRes.arrayBuffer());
+        res.end(buf);
+      } catch (err) {
+        console.error('[local-api]', err);
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(
+          JSON.stringify({
+            error: err instanceof Error ? err.message : 'Local API handler error',
+            code: 'LOCAL_API_ERROR',
+          })
+        );
+      }
+    });
+  }
+
   return {
     name: 'local-api-dev',
     configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url || !req.url.startsWith('/api/')) {
-          return next();
-        }
-        try {
-          const mod = await server.ssrLoadModule('/worker/tts-handler.ts');
-          const chunks = [];
-          for await (const chunk of req) {
-            chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-          }
-          const body = chunks.length ? Buffer.concat(chunks) : undefined;
-          const origin = `http://${req.headers.host || 'localhost:3000'}`;
-          const webReq = new Request(origin + req.url, {
-            method: req.method || 'GET',
-            headers: Object.entries(req.headers).reduce((acc, [k, v]) => {
-              if (typeof v === 'string') acc[k] = v;
-              else if (Array.isArray(v)) acc[k] = v.join(', ');
-              return acc;
-            }, {}),
-            body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
-          });
-          const webRes = await mod.handleApiRequest(webReq, {
-            GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-            DAILY_FREE_CHAR_LIMIT: process.env.DAILY_FREE_CHAR_LIMIT || '3000',
-            GLOBAL_DAILY_FREE_CHARS: process.env.GLOBAL_DAILY_FREE_CHARS || '100000',
-            FIREBASE_SERVICE_ACCOUNT_JSON: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
-          });
-          res.statusCode = webRes.status;
-          webRes.headers.forEach((v, k) => res.setHeader(k, v));
-          const buf = Buffer.from(await webRes.arrayBuffer());
-          res.end(buf);
-        } catch (err) {
-          console.error('[local-api-dev]', err);
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'Local API handler error' }));
-        }
-      });
+      attachMiddleware(server.middlewares, server);
+    },
+    configurePreviewServer(server) {
+      attachMiddleware(server.middlewares, null);
     },
   };
 }

@@ -5,6 +5,7 @@ import type {
   KeyState,
   PronunciationRule,
   SpeechItem,
+  SubtitleSegment,
 } from './types';
 
 export const MODELS = [
@@ -444,3 +445,85 @@ export function estimateStats(text: string, chunkSize: number, modelId: string) 
   const estCostUsd = (audioTokens / 1_000_000) * modelInfo.ratePer1MAudioTokens;
   return { chars, words, estParts, estMinutes, estCostUsd };
 }
+
+function splitCuePhrases(text: string): string[] {
+  const rawSentences = text.match(/[\s\S]*?[.!?۔؟\n]+|[\s\S]+$/g) || [text];
+  const cues: string[] = [];
+  for (const s of rawSentences) {
+    const clean = s.replace(/\s+/g, ' ').trim();
+    if (!clean) continue;
+    const words = clean.split(' ');
+    if (words.length <= 12) {
+      cues.push(clean);
+    } else {
+      for (let i = 0; i < words.length; i += 10) {
+        const piece = words.slice(i, i + 10).join(' ').trim();
+        if (piece) cues.push(piece);
+      }
+    }
+  }
+  return cues.length ? cues : [text.trim()];
+}
+
+export function buildSubtitleSegments(
+  items: SpeechItem[],
+  parts: Uint8Array[],
+  rate: number,
+  silMs: number
+): SubtitleSegment[] {
+  const bytesPerSec = Math.max(1, rate * 2);
+  const gapSec = Math.max(0, silMs / 1000);
+  const segments: SubtitleSegment[] = [];
+  let cursor = 0;
+
+  const count = Math.min(items.length, parts.length);
+  for (let i = 0; i < count; i++) {
+    const chunkDur = parts[i].byteLength / bytesPerSec;
+    const phrases = splitCuePhrases(items[i].text);
+    const totalWeight = phrases.reduce((acc, p) => acc + Math.max(1, p.length), 0);
+    let innerCursor = cursor;
+    for (let j = 0; j < phrases.length; j++) {
+      const weight = Math.max(1, phrases[j].length);
+      const dur = j === phrases.length - 1 ? cursor + chunkDur - innerCursor : (chunkDur * weight) / totalWeight;
+      const startSec = innerCursor;
+      const endSec = Math.max(startSec + 0.15, innerCursor + dur);
+      segments.push({ text: phrases[j], startSec, endSec });
+      innerCursor = endSec;
+    }
+    cursor += chunkDur + gapSec;
+  }
+
+  return segments;
+}
+
+function formatSubtitleTime(sec: number, separator: ',' | '.'): string {
+  const totalMs = Math.max(0, Math.round(sec * 1000));
+  const hrs = Math.floor(totalMs / 3600000);
+  const mins = Math.floor((totalMs % 3600000) / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const ms = totalMs % 1000;
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const pad3 = (n: number) => String(n).padStart(3, '0');
+  return `${pad2(hrs)}:${pad2(mins)}:${pad2(secs)}${separator}${pad3(ms)}`;
+}
+
+export function formatSubtitles(segments: SubtitleSegment[], format: 'srt' | 'vtt'): string {
+  if (format === 'vtt') {
+    const body = segments
+      .map(
+        (seg, idx) =>
+          `${idx + 1}\n${formatSubtitleTime(seg.startSec, '.')} --> ${formatSubtitleTime(seg.endSec, '.')}\n${seg.text}`
+      )
+      .join('\n\n');
+    return `WEBVTT\n\n${body}\n`;
+  }
+  return (
+    segments
+      .map(
+        (seg, idx) =>
+          `${idx + 1}\n${formatSubtitleTime(seg.startSec, ',')} --> ${formatSubtitleTime(seg.endSec, ',')}\n${seg.text}`
+      )
+      .join('\n\n') + '\n'
+  );
+}
+

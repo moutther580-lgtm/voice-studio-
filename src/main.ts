@@ -2,16 +2,19 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
 import {
   ADMIN_UID,
+  adminApproveReferral,
   adminDeleteContactMessage,
   adminFindWallet,
   adminGrantCredits,
   adminListContactMessages,
   adminListRecentLedger,
+  adminListReferrals,
   adminListUsers,
   adminListWallets,
   adminSetContactMessageStatus,
   auth,
   ensureUserAndWallet,
+  recordPendingReferralClient,
   resendVerificationEmail,
   sendResetEmail,
   signInEmail,
@@ -20,10 +23,12 @@ import {
   signUpEmail,
   submitContactMessage,
   subscribeLedger,
+  subscribeMyReferrals,
   subscribeWallet,
   verifyStrictAdmin,
   type ContactMessageDoc,
   type LedgerEntryDoc,
+  type ReferralRecordDoc,
   type UserProfileDoc,
   type UserWalletDoc,
 } from './firebase';
@@ -33,10 +38,12 @@ import {
   applyDictionary,
   buildBody,
   buildDialogueItems,
+  buildSubtitleSegments,
   chunks,
   classify,
   encodeMp3Blob,
   estimateStats,
+  formatSubtitles,
   getModelFallbackOrder,
   safePreviewSlice,
   toPcm,
@@ -45,9 +52,13 @@ import {
 } from './tts-core';
 import type {
   AudioFormat,
+  ChapterItem,
   GenerationJob,
   GenerationMode,
   InlineAudioData,
+  OutlineEntry,
+  PdfAgentOutputMode,
+  PdfAgentPlan,
   PronunciationRule,
   QuotaState,
   SpeechItem,
@@ -98,6 +109,12 @@ let authMode: 'signin' | 'signup' = 'signin';
 let activeQuota: QuotaState | null = null;
 let walletUnsub: Unsubscribe | null = null;
 let ledgerUnsub: Unsubscribe | null = null;
+let refUnsub: Unsubscribe | null = null;
+
+const refParamInit = new URLSearchParams(location.search).get('ref')?.trim() || '';
+if (/^[a-zA-Z0-9_-]{6,128}$/.test(refParamInit)) {
+  store.set('vs.pendingRef', refParamInit);
+}
 
 let byokEnabled = store.get<boolean>('vs.byokEnabled', false);
 let byokKey = store.get<string>('vs.byokKey', '');
@@ -119,11 +136,19 @@ let job: GenerationJob | null = null;
 let running = false;
 let previewing = false;
 let extracting = false;
+let studioBusy = false;
 let ctl: AbortController | null = null;
 let audioUrl: string | null = null;
+let srtUrl: string | null = null;
+let vttUrl: string | null = null;
 let lastBlob: Blob | null = null;
 let lastName = '';
 let loadedDocTitle = '';
+let fullLoadedDocText = '';
+let detectedChapters: ChapterItem[] = [];
+let loadedFile: File | null = null;
+let loadedPagesText: string[] = [];
+let loadedOutlineItems: OutlineEntry[] = [];
 let currentTextOrigin: 'user' | 'sample' | 'doc' = 'user';
 let sampleReplaceArmed = false;
 const sessionTitleCounts = new Map<string, number>();
@@ -266,9 +291,9 @@ function formatAuthError(err: unknown): string {
 }
 
 /* ---- Routing & Accessible Navigation Drawer ---- */
-const SEO_HOME_TITLE = 'Voice Studio – Free PDF, EPUB & DOCX to Audio TTS Converter';
+const SEO_HOME_TITLE = 'Voice Studio – Clean PDF, EPUB & Urdu/English Docs to MP3 Audio';
 const SEO_HOME_DESC =
-  'Convert PDF, EPUB, Word DOCX, and Urdu or English text into natural MP3 & WAV audio. Built for blind readers, students, and creators—3,000 free chars daily.';
+  'Convert academic PDFs, EPUB ebooks, and Word DOCX notes into clean MP3 audiobooks with Urdu & English AI voices, synced .SRT captions, and screen-reader control.';
 const pages = ['tool', 'account', 'admin', 'guides', 'formats', 'faq', 'about', 'contact', 'privacy', 'terms'] as const;
 type PageId = (typeof pages)[number];
 
@@ -624,6 +649,8 @@ function clearFirestoreListeners() {
   walletUnsub = null;
   ledgerUnsub?.();
   ledgerUnsub = null;
+  refUnsub?.();
+  refUnsub = null;
 }
 
 function setAuthTab(mode: 'signin' | 'signup') {
@@ -817,6 +844,11 @@ async function handleAuthUser(user: User | null) {
   $('#userAccountMeta').textContent = user.email ? `${user.email} · 3,000 chars daily allowance` : '';
   updateWorkspaceBalanceBar();
 
+  const refInput = document.getElementById('refLinkInput') as HTMLInputElement | null;
+  if (refInput) {
+    refInput.value = `${window.location.origin}/?ref=${encodeURIComponent(user.uid)}`;
+  }
+
   try {
     await ensureUserAndWallet(user);
     walletUnsub = subscribeWallet(
@@ -835,8 +867,46 @@ async function handleAuthUser(user: User | null) {
         // Ignore live history error silently if offline
       }
     );
+    refUnsub = subscribeMyReferrals(
+      user.uid,
+      (rows) => {
+        const granted = rows.filter((r) => r.bonusGranted).length;
+        const msgEl = document.getElementById('refStatsMsg');
+        if (msgEl) {
+          msgEl.textContent =
+            `Invited friends: ${rows.length} (${granted} verified & credited) · ` +
+            `Bonus credits earned: ${(granted * 2000).toLocaleString()} chars`;
+        }
+      },
+      () => {
+        // Ignore live referral listener error if offline
+      }
+    );
   } catch {
     sayAuth('Could not load account balance right now.');
+  }
+
+  const pendingRef = store.get<string>('vs.pendingRef', '').trim();
+  if (pendingRef && pendingRef !== user.uid && /^[a-zA-Z0-9_-]{6,128}$/.test(pendingRef)) {
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/referral', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ referrerUid: pendingRef }),
+      });
+      const data = res.ok ? ((await res.json()) as { credited?: boolean; pending?: boolean }) : {};
+      if (!res.ok || data.pending) {
+        await recordPendingReferralClient(user, pendingRef);
+      }
+      store.set('vs.pendingRef', '');
+    } catch {
+      await recordPendingReferralClient(user, pendingRef);
+      store.set('vs.pendingRef', '');
+    }
   }
 
   if (user.displayName && !$<HTMLInputElement>('#contactName').value.trim()) {
@@ -1028,6 +1098,29 @@ function mountAdminPanel() {
             </tr>
           </thead>
           <tbody id="adminLedgerBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="adminReferralsCard">
+      <h2>Referral Invites</h2>
+      <p class="hint">Monitor friend invites and grant pending 2,000-character invite bonuses if automatic crediting is inactive.</p>
+      <div class="btn-group">
+        <button id="adminLoadReferrals" type="button" class="sec">Load Referrals</button>
+      </div>
+      <p id="adminRefMsg" class="hint" role="status" aria-live="polite"></p>
+      <p id="adminRefErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+      <div class="admin-table-wrap" id="adminRefWrap" hidden>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th scope="col">Invited User ID</th>
+              <th scope="col">Referrer User ID</th>
+              <th scope="col">Status</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody id="adminRefBody"></tbody>
         </table>
       </div>
     </div>
@@ -1547,6 +1640,66 @@ function mountAdminPanel() {
     }
   };
 
+  const renderReferralsTable = (rows: ReferralRecordDoc[]) => {
+    const tbody = $('#adminRefBody');
+    tbody.innerHTML = '';
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      const tdUid = document.createElement('td');
+      tdUid.textContent = r.uid;
+      const tdRef = document.createElement('td');
+      tdRef.textContent = r.referrerUid;
+      const tdStatus = document.createElement('td');
+      tdStatus.textContent = r.bonusGranted ? 'Bonus granted (+2,000)' : 'Pending approval';
+
+      const tdAct = document.createElement('td');
+      if (!r.bonusGranted) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sec';
+        btn.textContent = 'Grant +2k bonus';
+        btn.onclick = async () => {
+          $('#adminRefErr').textContent = '';
+          $('#adminRefMsg').textContent = `Granting referral bonus for ${r.referrerUid}…`;
+          try {
+            await adminApproveReferral(r, 2000);
+            const refreshed = await adminListReferrals();
+            renderReferralsTable(refreshed);
+            const wallets = await adminListWallets();
+            updateWalletOverview(wallets);
+            renderWalletRows(wallets);
+            $('#adminRefMsg').textContent = `Granted 2,000 credits to ${r.referrerUid}.`;
+          } catch (err) {
+            $('#adminRefErr').textContent = formatUiError(err, 'Could not grant referral bonus.');
+          }
+        };
+        tdAct.appendChild(btn);
+      } else {
+        tdAct.textContent = 'Completed';
+      }
+      tr.append(tdUid, tdRef, tdStatus, tdAct);
+      tbody.appendChild(tr);
+    }
+    $('#adminRefWrap').hidden = rows.length === 0;
+    $('#adminRefMsg').textContent = rows.length ? `Showing ${rows.length} referral record(s).` : 'No referrals recorded yet.';
+  };
+
+  const loadReferrals = async () => {
+    $('#adminRefErr').textContent = '';
+    $('#adminRefMsg').textContent = 'Loading referrals…';
+    try {
+      const rows = await adminListReferrals();
+      renderReferralsTable(rows);
+    } catch (err) {
+      $('#adminRefMsg').textContent = '';
+      $('#adminRefErr').textContent = formatUiError(err, 'Could not load referrals.');
+    }
+  };
+
+  $('#adminLoadReferrals').onclick = () => {
+    void loadReferrals();
+  };
+
   $('#adminCheckHealth').onclick = () => {
     void checkHealth();
   };
@@ -1554,10 +1707,11 @@ function mountAdminPanel() {
   $('#adminRefreshAll').onclick = async () => {
     $('#adminOverviewMsg').textContent = 'Loading admin overview…';
     try {
-      const [wallets, ledger, inbox] = await Promise.all([
+      const [wallets, ledger, inbox, referrals] = await Promise.all([
         adminListWallets(),
         adminListRecentLedger(),
         adminListContactMessages(),
+        adminListReferrals(),
       ]);
       updateWalletOverview(wallets);
       renderWalletRows(wallets);
@@ -1565,6 +1719,7 @@ function mountAdminPanel() {
       renderLedgerTable();
       cachedInbox = inbox;
       renderInbox();
+      renderReferralsTable(referrals);
       await checkHealth();
       $('#adminOverviewMsg').textContent = 'All admin sections updated.';
     } catch (err) {
@@ -1659,6 +1814,18 @@ function updateCounts() {
     `About ${stats.estParts} parts, ~${estMins} min audio.${quotaMsg}`;
 }
 
+function syncStylePresetSelect(styleValue: string) {
+  const sel = document.getElementById('stylePreset') as HTMLSelectElement | null;
+  if (!sel) return;
+  const trimmed = styleValue.trim();
+  if (!trimmed) {
+    sel.value = '';
+    return;
+  }
+  const hasMatch = Array.from(sel.options).some((opt) => opt.value !== '__custom__' && opt.value === trimmed);
+  sel.value = hasMatch ? trimmed : '__custom__';
+}
+
 function bindSettings() {
   populateSelects();
 
@@ -1667,6 +1834,7 @@ function bindSettings() {
   $<HTMLSelectElement>('#voiceB').value = cfg.voiceB;
   $<HTMLSelectElement>('#mode').value = cfg.mode;
   $<HTMLInputElement>('#style').value = cfg.style;
+  syncStylePresetSelect(cfg.style);
   $<HTMLInputElement>('#chunk').value = String(cfg.chunk);
   $<HTMLInputElement>('#pause').value = String(cfg.pause);
   $<HTMLInputElement>('#sil').value = String(cfg.sil);
@@ -1750,16 +1918,20 @@ function bindSettings() {
   });
   $('#style').addEventListener('input', (e) => {
     cfg.style = (e.target as HTMLInputElement).value;
+    syncStylePresetSelect(cfg.style);
     saveCfg();
   });
-  document.querySelectorAll<HTMLButtonElement>('.style-preset-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const val = btn.dataset.style || '';
-      cfg.style = val;
-      $<HTMLInputElement>('#style').value = val;
-      saveCfg();
-      say(val ? `Speaking style set to: ${val}.` : 'Speaking style cleared.');
-    });
+  $('#stylePreset').addEventListener('change', (e) => {
+    const val = (e.target as HTMLSelectElement).value;
+    if (val === '__custom__') {
+      $('#style').focus();
+      say('Type your custom speaking style instruction in the text field below.');
+      return;
+    }
+    cfg.style = val;
+    $<HTMLInputElement>('#style').value = val;
+    saveCfg();
+    say(val ? `Speaking style set to: ${val}.` : 'Speaking style reset to standard natural delivery.');
   });
   $('#chunk').addEventListener('input', () => {
     cfg.chunk = num('#chunk', 300, 3000, 1800);
@@ -2038,6 +2210,7 @@ async function callServerTts(
     };
   }
 
+  let rawText = '';
   let data: {
     audio?: InlineAudioData;
     quota?: QuotaState;
@@ -2045,9 +2218,10 @@ async function callServerTts(
     code?: string;
   } = {};
   try {
-    data = (await res.json()) as typeof data;
+    rawText = await res.text();
+    data = JSON.parse(rawText) as typeof data;
   } catch {
-    // Fall through
+    // Non-JSON response
   }
 
   if (res.ok && data.audio?.data) {
@@ -2069,9 +2243,12 @@ async function callServerTts(
   }
 
   if (res.status === 500) {
+    const cleanRaw = rawText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
     const serverMsg =
       data.error ||
-      'The shared speech server hit an unexpected error (500). Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or check your server environment variables.';
+      (cleanRaw
+        ? `Speech server error (500): ${cleanRaw}. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1.`
+        : 'The shared speech server hit an unexpected error (500). Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or check your server environment variables.');
     return { kind: 'bad', msg: serverMsg };
   }
 
@@ -2090,7 +2267,7 @@ async function callServerTts(
 
 /* ---- UI State & Generation ---- */
 function ui() {
-  const busy = running || previewing || extracting;
+  const busy = running || previewing || extracting || studioBusy;
   $<HTMLButtonElement>('#gen').disabled = busy;
   $<HTMLButtonElement>('#prev').disabled = busy;
   $<HTMLButtonElement>('#voiceDemo').disabled = busy;
@@ -2099,6 +2276,18 @@ function ui() {
   $<HTMLButtonElement>('#load').disabled = busy;
   $<HTMLButtonElement>('#sampleSingle').disabled = busy;
   $<HTMLButtonElement>('#sampleDialogue').disabled = busy;
+  $<HTMLButtonElement>('#detectChaptersBtn').disabled = busy;
+  $<HTMLButtonElement>('#loadChapterBtn').disabled = busy;
+  $<HTMLButtonElement>('#loadAllChaptersBtn').disabled = busy;
+  $<HTMLButtonElement>('#exportChaptersZipBtn').disabled = busy;
+  $<HTMLButtonElement>('#genPodcastBtn').disabled = busy;
+  $<HTMLButtonElement>('#translateBtn').disabled = busy;
+  $<HTMLSelectElement>('#templateSelect').disabled = busy;
+  $<HTMLButtonElement>('#applyTemplateBtn').disabled = busy;
+  $<HTMLButtonElement>('#pdfAgentPickFileBtn').disabled = busy;
+  $<HTMLButtonElement>('#pdfAgentRunBtn').disabled = busy;
+  $<HTMLButtonElement>('#pdfAgentLoadOnlyBtn').disabled = busy;
+  $<HTMLSelectElement>('#pdfAgentOutputStyle').disabled = busy;
 
   $<HTMLSelectElement>('#model').disabled = running;
   $<HTMLSelectElement>('#voice').disabled = running;
@@ -2136,6 +2325,10 @@ async function finishOutput(currentJob: GenerationJob) {
     blob = wavBlob(currentJob.parts, currentJob.rate, currentJob.sil);
   }
 
+  const segments = buildSubtitleSegments(currentJob.items, currentJob.parts, currentJob.rate, currentJob.sil);
+  const srtContent = formatSubtitles(segments, 'srt');
+  const vttContent = formatSubtitles(segments, 'vtt');
+
   running = false;
   job = null;
   progEl.value = 0;
@@ -2143,7 +2336,12 @@ async function finishOutput(currentJob: GenerationJob) {
   progEl.hidden = true;
 
   if (audioUrl) URL.revokeObjectURL(audioUrl);
+  if (srtUrl) URL.revokeObjectURL(srtUrl);
+  if (vttUrl) URL.revokeObjectURL(vttUrl);
+
   audioUrl = URL.createObjectURL(blob);
+  srtUrl = URL.createObjectURL(new Blob([srtContent], { type: 'application/x-subrip;charset=utf-8' }));
+  vttUrl = URL.createObjectURL(new Blob([vttContent], { type: 'text/vtt;charset=utf-8' }));
 
   const player = $<HTMLAudioElement>('#player');
   player.src = audioUrl;
@@ -2164,13 +2362,24 @@ async function finishOutput(currentJob: GenerationJob) {
   dl.download = lastName;
   dl.textContent = currentJob.format === 'mp3' ? 'Download MP3 file' : 'Download WAV file';
 
+  const baseStem = lastName.replace(/\.[^.]+$/, '');
+  const dlSrt = $<HTMLAnchorElement>('#dlSrt');
+  dlSrt.href = srtUrl;
+  dlSrt.download = `${baseStem}.srt`;
+  dlSrt.hidden = !segments.length;
+
+  const dlVtt = $<HTMLAnchorElement>('#dlVtt');
+  dlVtt.href = vttUrl;
+  dlVtt.download = `${baseStem}.vtt`;
+  dlVtt.hidden = !segments.length;
+
   const secs = Math.round(totalPcmDurationSeconds(currentJob.parts, currentJob.rate, currentJob.sil));
   const mb = (blob.size / 1048576).toFixed(2);
-  $('#info').textContent = `File: ${lastName}, ${mb} MB (${currentJob.format.toUpperCase()})`;
+  $('#info').textContent = `File: ${lastName}, ${mb} MB (${currentJob.format.toUpperCase()}) · ${segments.length} synced subtitle cues`;
   $('#result').hidden = false;
   setupShare();
 
-  say(`Finished. Your audio is ready, about ${Math.floor(secs / 60)} minutes ${secs % 60} seconds.`);
+  say(`Finished. Your audio and synced subtitles are ready, about ${Math.floor(secs / 60)} minutes ${secs % 60} seconds.`);
   ui();
   player.focus();
 }
@@ -2374,6 +2583,12 @@ $('#clear').onclick = () => {
   }
   setText('', 'user');
   loadedDocTitle = '';
+  fullLoadedDocText = '';
+  detectedChapters = [];
+  loadedFile = null;
+  loadedPagesText = [];
+  loadedOutlineItems = [];
+  renderChaptersBox();
   $<HTMLInputElement>('#audioTitle').value = '';
   say('Text cleared.');
   $('#text').focus();
@@ -2435,19 +2650,62 @@ $('#sampleDialogue').onclick = () => {
   );
 };
 
+function renderChaptersBox() {
+  const box = $('#chaptersBox');
+  const sel = $<HTMLSelectElement>('#chapterSelect');
+  const summary = $('#chaptersSummary');
+  sel.innerHTML = '';
+
+  if (detectedChapters.length < 2) {
+    box.hidden = true;
+    summary.textContent = '';
+    return;
+  }
+
+  detectedChapters.forEach((ch, idx) => {
+    const opt = document.createElement('option');
+    opt.value = String(idx);
+    opt.textContent = `${idx + 1}. ${ch.title} (${[...ch.text].length.toLocaleString()} chars)`;
+    sel.appendChild(opt);
+  });
+
+  summary.textContent = `${detectedChapters.length} chapters ready — load one chapter into the editor or export all chapters as one Audiobook ZIP.`;
+  box.hidden = false;
+}
+
 async function handleSelectedFile(f: File) {
   extracting = true;
+  loadedFile = f;
   ui();
   say(`Reading ${f.name}…`);
   try {
     const { extractDocument } = await import('./doc-extract');
     const res = await extractDocument(f, cfg.cleanDocs);
-    if (!res.text.trim()) {
-      say(`No readable text was found inside ${f.name}. If this is a scanned image PDF, OCR is needed first.`);
-      return;
-    }
     const prevDocTitle = loadedDocTitle;
     loadedDocTitle = cleanDocBasename(f.name);
+    loadedPagesText = res.pagesText || [];
+    loadedOutlineItems = res.outlineItems || [];
+
+    if (!res.text.trim()) {
+      fullLoadedDocText = '';
+      detectedChapters = [];
+      renderChaptersBox();
+      const isPdf = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
+      if (isPdf) {
+        const msg = `${f.name} appears to be a scanned image PDF without selectable text. Open the AI PDF Recording Agent below to extract & record pages using Gemini Vision.`;
+        const agentStatus = document.getElementById('pdfAgentStatus');
+        if (agentStatus) agentStatus.textContent = msg;
+        say(msg);
+      } else {
+        say(`No readable text was found inside ${f.name}.`);
+      }
+      return;
+    }
+
+    fullLoadedDocText = res.text;
+    detectedChapters = res.chaptersList || [];
+    renderChaptersBox();
+
     const titleEl = $<HTMLInputElement>('#audioTitle');
     if (!titleEl.value.trim() || titleEl.value.trim() === prevDocTitle) {
       titleEl.value = loadedDocTitle;
@@ -2458,6 +2716,10 @@ async function handleSelectedFile(f: File) {
     if (res.chapters) details.push(`${res.chapters} chapters`);
     const cleanNote = res.removedLines ? ` Cleaned ${res.removedLines} header or page-number lines.` : '';
     say(`Loaded ${f.name} (${details.join(', ')}), ${[...res.text].length.toLocaleString()} characters.${cleanNote}`);
+    const agentStatus = document.getElementById('pdfAgentStatus');
+    if (agentStatus) {
+      agentStatus.textContent = `Ready: ${f.name} (${details.join(', ')}). Enter what to extract below.`;
+    }
   } catch {
     say(`Could not read ${f.name}. Make sure it is a valid PDF, DOCX, EPUB, or text file.`);
   } finally {
@@ -2640,10 +2902,775 @@ function bindPwaAndShare() {
   };
 }
 
+/* ---- Chapters, Audiobook ZIP, Creator Studio, Public Demo & Referral UI ---- */
+$('#detectChaptersBtn').onclick = async () => {
+  const raw = $<HTMLTextAreaElement>('#text').value.trim();
+  if (!raw) {
+    say('Enter or load some text before splitting into chapters.');
+    $('#text').focus();
+    return;
+  }
+  const { splitTextIntoChapters } = await import('./doc-extract');
+  const found = splitTextIntoChapters(raw, 'Chapter');
+  if (found.length < 2) {
+    say('Only 1 section was detected. Add headings like "Chapter 1" or "Part 1", or paste longer text (4,500+ chars) to split automatically.');
+    return;
+  }
+  fullLoadedDocText = raw;
+  detectedChapters = found;
+  renderChaptersBox();
+  say(`Detected ${found.length} chapters. Select one to load, or export all as an Audiobook ZIP.`);
+  $('#chapterSelect').focus();
+};
+
+$('#loadChapterBtn').onclick = () => {
+  const idx = parseInt($<HTMLSelectElement>('#chapterSelect').value, 10) || 0;
+  const ch = detectedChapters[idx];
+  if (!ch) return;
+  setText(ch.text, 'doc');
+  const baseTitle = loadedDocTitle || 'audiobook';
+  $<HTMLInputElement>('#audioTitle').value = `${baseTitle} - ${ch.title}`.slice(0, 80);
+  say(`Loaded ${ch.title} (${[...ch.text].length.toLocaleString()} characters).`);
+  $('#text').focus();
+};
+
+$('#loadAllChaptersBtn').onclick = () => {
+  if (!fullLoadedDocText) return;
+  setText(fullLoadedDocText, 'doc');
+  if (loadedDocTitle) {
+    $<HTMLInputElement>('#audioTitle').value = loadedDocTitle;
+  }
+  say(`Restored full book text (${[...fullLoadedDocText].length.toLocaleString()} characters).`);
+  $('#text').focus();
+};
+
+$('#exportChaptersZipBtn').onclick = async () => {
+  if (!requireSignedInUser()) return;
+  if (detectedChapters.length < 2) {
+    say('Load a multi-chapter document or split your text into chapters first.');
+    return;
+  }
+
+  const chunkSize = num('#chunk', 300, 3000, 1800);
+  const pauseSec = num('#pause', 0, 60, 1);
+  const silMs = num('#sil', 0, 3000, 250);
+  const progEl = $<HTMLProgressElement>('#prog');
+
+  running = true;
+  ctl = new AbortController();
+  ui();
+  progEl.hidden = false;
+  progEl.value = 0;
+  say(`Preparing Audiobook ZIP (${detectedChapters.length} chapters)…`);
+
+  try {
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    const tocLines: string[] = [`Voice Studio Audiobook Export`, `Chapters: ${detectedChapters.length}`, ''];
+
+    for (let c = 0; c < detectedChapters.length; c++) {
+      if (ctl.signal.aborted) {
+        say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
+        return;
+      }
+
+      const chapter = detectedChapters[c];
+      const items = prepareSpeechItems(chapter.text, chunkSize);
+      if (!items.length) continue;
+
+      const parts: Uint8Array[] = [];
+      let rate = 24000;
+
+      for (let i = 0; i < items.length; i++) {
+        if (ctl.signal.aborted) {
+          say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
+          return;
+        }
+        say(`Chapter ${c + 1}/${detectedChapters.length} (${chapter.title}) · Part ${i + 1}/${items.length}…`);
+        const r = await callServerTts(cfg.model, items[i].voice, cfg.style, items[i].text, ctl.signal);
+        if (r.kind === 'abort') return;
+        if (r.kind !== 'ok') {
+          sayError(`Chapter ${c + 1} paused: ${r.msg}`);
+          return;
+        }
+        const pcmObj = toPcm(r.d);
+        if (!parts.length) rate = pcmObj.rate;
+        parts.push(pcmObj.pcm);
+        if (i < items.length - 1) await sleep(pauseSec * 1000);
+      }
+
+      const audioBlob =
+        cfg.format === 'mp3'
+          ? await encodeMp3Blob(parts, rate, silMs, cfg.mp3Kbps)
+          : wavBlob(parts, rate, silMs);
+
+      const segments = buildSubtitleSegments(items, parts, rate, silMs);
+      const srtText = formatSubtitles(segments, 'srt');
+
+      const pad = String(c + 1).padStart(2, '0');
+      const chapterSlug = cleanTitleSlug(chapter.title) || `chapter-${c + 1}`;
+      const audioFilename = `${pad}-${chapterSlug}.${cfg.format}`;
+      const srtFilename = `${pad}-${chapterSlug}.srt`;
+
+      zip.file(audioFilename, audioBlob);
+      zip.file(srtFilename, srtText);
+      tocLines.push(`${pad}. ${chapter.title} -> ${audioFilename} + ${srtFilename}`);
+
+      const pct = Math.round(((c + 1) * 100) / detectedChapters.length);
+      progEl.value = pct;
+      progEl.setAttribute('aria-valuetext', `${pct} percent (${c + 1} of ${detectedChapters.length} chapters)`);
+    }
+
+    zip.file('00-chapters-index.txt', tocLines.join('\n') + '\n');
+    say('Packaging chapters & synced subtitles into ZIP archive…');
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipStem = cleanTitleSlug($<HTMLInputElement>('#audioTitle').value || loadedDocTitle) || 'voice-studio';
+    const zipName = `${zipStem}-audiobook.zip`;
+
+    const tmpUrl = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = tmpUrl;
+    a.download = zipName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(tmpUrl), 60000);
+    say(`Finished! Downloaded ${zipName} with ${detectedChapters.length} chapters and synced .SRT subtitles.`);
+  } catch {
+    sayError('Audiobook ZIP export encountered an unexpected error. Try lowering Chapters/chunks or export chapters individually.');
+  } finally {
+    running = false;
+    ctl = null;
+    progEl.value = 0;
+    progEl.hidden = true;
+    ui();
+  }
+};
+
+const CREATOR_TEMPLATES: Record<
+  string,
+  { title: string; mode: GenerationMode; style: string; text: string }
+> = {
+  youtube: {
+    title: 'YouTube Explainer Hook',
+    mode: 'single',
+    style: 'clear, energetic YouTube narrator',
+    text:
+      'Have you ever wondered why some study videos grab your attention in the first five seconds?\n\n' +
+      'Today we are breaking down the three simple ideas behind clearer storytelling: start with one surprising question, give one concrete example, and end with one memorable takeaway.',
+  },
+  lecture: {
+    title: 'Urdu English Lecture Notes',
+    mode: 'single',
+    style: 'slowly, clearly, and calmly',
+    text:
+      'Assalam-o-Alaikum students! Aaj ke lecture mein hum Machine Learning ke teen basic concepts samjhenge.\n\n' +
+      'Sab se pehle Supervised Learning aata hai, jahan model labeled examples se seekhta hai. Doosra Unsupervised Learning hai jo hidden patterns dhoondta hai, aur teesra Reinforcement Learning hai jo trial and feedback se improve hota hai.',
+  },
+  podcast: {
+    title: 'Two Speaker Study Podcast',
+    mode: 'dialogue',
+    style: 'warm, conversational podcast hosts',
+    text:
+      'Host: Welcome back to Learning Radio! Today we are talking about turning long PDFs into audio flashcards.\n' +
+      'Guest: Honestly, listening while walking or revising before an exam saves hours of screen fatigue.\n' +
+      'Host: Especially when you can export every chapter with synced subtitles and listen at one-point-five x speed.',
+  },
+  story: {
+    title: 'Midnight Lighthouse Story',
+    mode: 'single',
+    style: 'warm, expressive audiobook storyteller',
+    text:
+      'The old brass lantern on the cliffside flickered to life just as rain tapped against the glass. Down in the harbor, the last fishing boat turned toward the steady golden beam, guided safely home through the fog.',
+  },
+};
+
+function setStudioStatus(msg: string) {
+  $('#studioErr').textContent = '';
+  $('#studioStatus').textContent = msg;
+}
+function setStudioErr(msg: string) {
+  $('#studioStatus').textContent = '';
+  $('#studioErr').textContent = msg;
+}
+
+$('#applyTemplateBtn').onclick = () => {
+  const key = $<HTMLSelectElement>('#templateSelect').value;
+  const tpl = CREATOR_TEMPLATES[key];
+  if (!tpl) return;
+  const current = $<HTMLTextAreaElement>('#text').value.trim();
+  if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
+    sampleReplaceArmed = true;
+    setStudioStatus('Your editor already has text. Press Load selected template again to replace it.');
+    return;
+  }
+  cfg.mode = tpl.mode;
+  cfg.style = tpl.style;
+  $<HTMLSelectElement>('#mode').value = tpl.mode;
+  $<HTMLInputElement>('#style').value = tpl.style;
+  syncStylePresetSelect(tpl.style);
+  syncOptionVisibility();
+  store.set('vs.cfg', cfg);
+  loadedDocTitle = '';
+  $<HTMLInputElement>('#audioTitle').value = tpl.title;
+  setText(tpl.text, 'sample');
+  setStudioStatus(`Loaded "${tpl.title}" template (${tpl.mode === 'dialogue' ? '2-speaker dialogue' : 'single voice'}).`);
+  $('#text').focus();
+};
+
+async function callByokStudioText(systemInstruction: string, prompt: string, key: string): Promise<string> {
+  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+  let lastStatus = 0;
+  let lastMsg = '';
+  for (const m of models) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      }),
+    });
+    lastStatus = res.status;
+    const raw = await res.text();
+    if (res.ok) {
+      const parsed = JSON.parse(raw) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const out = (parsed.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+      if (!out) throw new Error('Gemini returned an empty script.');
+      return out;
+    }
+    if (res.status !== 404) {
+      try {
+        lastMsg = (JSON.parse(raw) as { error?: { message?: string } }).error?.message || '';
+      } catch {
+        // Ignore
+      }
+      throw new Error(lastMsg || `Gemini API returned HTTP ${res.status}.`);
+    }
+  }
+  throw new Error(`No compatible Gemini text model accepted your API key (HTTP ${lastStatus || 404}).`);
+}
+
+async function callByokStudioStructured(
+  systemInstruction: string,
+  parts: Array<Record<string, unknown>>,
+  responseSchema: Record<string, unknown>,
+  key: string
+): Promise<Record<string, unknown>> {
+  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+  let lastStatus = 0;
+  let lastMsg = '';
+  for (const m of models) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: 'user', parts }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema,
+        },
+      }),
+    });
+    lastStatus = res.status;
+    const raw = await res.text();
+    if (res.ok) {
+      const parsed = JSON.parse(raw) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const jsonText = (parsed.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+      if (!jsonText) throw new Error('Gemini returned an empty plan.');
+      return JSON.parse(jsonText) as Record<string, unknown>;
+    }
+    if (res.status !== 404) {
+      try {
+        lastMsg = (JSON.parse(raw) as { error?: { message?: string } }).error?.message || '';
+      } catch {
+        // Ignore
+      }
+      throw new Error(lastMsg || `Gemini API returned HTTP ${res.status}.`);
+    }
+  }
+  throw new Error(`No compatible Gemini model accepted your API key (HTTP ${lastStatus || 404}).`);
+}
+
+async function postStudioEndpoint<T extends Record<string, unknown>>(payload: Record<string, unknown>): Promise<T> {
+  if (!currentUser || !currentUser.emailVerified) {
+    throw new Error('Please sign in and verify your email first.');
+  }
+  const token = await currentUser.getIdToken();
+  const res = await fetch('/api/studio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as T & { error?: string };
+  if (!res.ok) {
+    throw new Error(data.error || `AI studio failed (${res.status}).`);
+  }
+  return data;
+}
+
+async function runStudioAction(
+  payload:
+    | { action: 'podcast'; topic: string; length: string }
+    | { action: 'translate'; text: string; targetLang: string }
+): Promise<string> {
+  if (isByokActive()) {
+    const key = byokKey.trim();
+    if (payload.action === 'podcast') {
+      const sys =
+        'You write natural two-speaker conversational podcast scripts for text-to-speech playback. Output ONLY lines prefixed with "Host: " or "Guest: ". Never use markdown formatting, asterisks, or stage directions.';
+      const prompt =
+        payload.length === 'medium'
+          ? `Write an engaging 8 to 10 turn podcast discussion between Host and Guest about:\n\n${payload.topic}`
+          : `Write a crisp 5 to 6 turn podcast discussion between Host and Guest about:\n\n${payload.topic}`;
+      return callByokStudioText(sys, prompt, key);
+    }
+    const sys =
+      'You translate and adapt scripts for natural human speech synthesis. Preserve any speaker labels like "Host:", "Guest:", "A:", or "B:" verbatim if present. Return ONLY the translated spoken text.';
+    const prompt = `Translate and naturally adapt the following text into ${payload.targetLang} so it reads smoothly aloud:\n\n${payload.text}`;
+    return callByokStudioText(sys, prompt, key);
+  }
+
+  const data = await postStudioEndpoint<{ script?: string }>(payload);
+  if (!data.script) {
+    throw new Error('AI studio returned an empty script.');
+  }
+  return data.script;
+}
+
+function setPdfAgentStatus(msg: string) {
+  $('#pdfAgentErr').textContent = '';
+  $('#pdfAgentStatus').textContent = msg;
+}
+function setPdfAgentErr(msg: string) {
+  $('#pdfAgentStatus').textContent = '';
+  $('#pdfAgentErr').textContent = msg;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = typeof reader.result === 'string' ? reader.result : '';
+      const idx = res.indexOf(',');
+      resolve(idx >= 0 ? res.slice(idx + 1) : res);
+    };
+    reader.onerror = () => reject(new Error('Could not read file bytes.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function runPdfRecordingAgent(forceLoadOnly = false) {
+  const userPrompt = $<HTMLInputElement>('#pdfAgentPrompt').value.trim();
+  const outputMode = ($<HTMLSelectElement>('#pdfAgentOutputStyle').value || 'narrated') as PdfAgentOutputMode;
+  const shouldRecord = !forceLoadOnly && $<HTMLInputElement>('#pdfAgentAutoRecord').checked;
+  const editorText = $<HTMLTextAreaElement>('#text').value.trim();
+
+  if (!loadedFile && !loadedPagesText.length && !detectedChapters.length && !editorText) {
+    setPdfAgentErr('Load a PDF or document first (or paste notes in Step 2) before running the agent.');
+    $('#pdfAgentPickFileBtn').focus();
+    return;
+  }
+  if (!userPrompt) {
+    setPdfAgentErr('Describe which chapter, topic, or pages you want to extract and record.');
+    $('#pdfAgentPrompt').focus();
+    return;
+  }
+
+  studioBusy = true;
+  ui();
+  setPdfAgentStatus('Analyzing document structure and selecting matching content…');
+
+  try {
+    const {
+      buildPdfAgentIndex,
+      cleanScriptForSpeech,
+      localPdfAgentFallback,
+      parsePageRangeFromPrompt,
+      renderPdfPagesToJpegs,
+      slicePdfPages,
+      splitTextIntoChapters,
+    } = await import('./doc-extract');
+
+    const isPdfFile = Boolean(
+      loadedFile && (loadedFile.name.toLowerCase().endsWith('.pdf') || loadedFile.type === 'application/pdf')
+    );
+    const hasReadablePages = loadedPagesText.some((t) => t.trim().length >= 25);
+    const isScannedPdf = isPdfFile && (!loadedPagesText.length || !hasReadablePages);
+    const byok = isByokActive();
+    const canUseServerAi = Boolean(currentUser && currentUser.emailVerified);
+
+    let extractedScript = '';
+    let resolvedTitle = loadedDocTitle || 'Selected Audio Section';
+    let methodNote = 'local extractor';
+
+    if (isScannedPdf && loadedFile) {
+      if (!byok && !canUseServerAi) {
+        throw new Error('Scanned image PDFs require Gemini Vision. Please sign in or enable your own Gemini API key in Step 1.');
+      }
+
+      setPdfAgentStatus('Reading scanned PDF pages with Gemini Vision…');
+      const styleRule =
+        outputMode === 'podcast'
+          ? 'Format script as alternating lines starting strictly with "Host: " or "Guest: ".'
+          : 'Write script as clean, fluent spoken prose with zero markdown, asterisks, citations, or page numbers.';
+      const visionSchema = {
+        type: 'OBJECT',
+        properties: {
+          sectionTitle: { type: 'STRING' },
+          script: { type: 'STRING' },
+        },
+        required: ['sectionTitle', 'script'],
+      };
+      const maxPagesEstimate = Math.max(1, loadedPagesText.length || 200);
+      const explicitRange = parsePageRangeFromPrompt(userPrompt, maxPagesEstimate);
+      const targetPages: number[] = [];
+      if (explicitRange) {
+        for (let p = explicitRange.start; p <= explicitRange.end && targetPages.length < 6; p++) {
+          targetPages.push(p);
+        }
+      } else {
+        targetPages.push(1, 2, 3, 4, 5, 6);
+      }
+
+      const maxDirectBytes = byok ? 9_000_000 : 2_700_000;
+      if (loadedFile.size <= maxDirectBytes) {
+        const pdfBase64 = await fileToBase64(loadedFile);
+        if (byok) {
+          const out = await callByokStudioStructured(
+            'You convert scanned PDF documents into clean, accurate spoken audio scripts without markdown or visual page artifacts.',
+            [
+              { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
+              {
+                text: `User request: "${userPrompt}". Mode: ${outputMode}. ${styleRule} Extract accurately from the attached document pages and return JSON with sectionTitle and script.`,
+              },
+            ],
+            visionSchema,
+            byokKey.trim()
+          );
+          resolvedTitle = String(out.sectionTitle || resolvedTitle);
+          extractedScript = cleanScriptForSpeech(String(out.script || ''));
+          methodNote = 'Gemini Vision (BYOK PDF)';
+        } else {
+          const out = await postStudioEndpoint<{ sectionTitle?: string; script?: string }>({
+            action: 'pdf_multimodal',
+            pdfBase64,
+            userPrompt,
+            outputMode,
+          });
+          resolvedTitle = out.sectionTitle || resolvedTitle;
+          extractedScript = cleanScriptForSpeech(out.script || '');
+          methodNote = 'Gemini Vision (Scanned PDF)';
+        }
+      } else {
+        const pageImages = await renderPdfPagesToJpegs(loadedFile, targetPages);
+        if (!pageImages.length) {
+          throw new Error('Could not render pages from this scanned PDF.');
+        }
+        if (byok) {
+          const parts: Array<Record<string, unknown>> = pageImages.map((img) => ({
+            inlineData: { mimeType: img.mimeType, data: img.data },
+          }));
+          parts.push({
+            text: `User request: "${userPrompt}". Mode: ${outputMode}. ${styleRule} Extract accurately from the attached document pages and return JSON with sectionTitle and script.`,
+          });
+          const out = await callByokStudioStructured(
+            'You convert scanned PDF documents into clean, accurate spoken audio scripts without markdown or visual page artifacts.',
+            parts,
+            visionSchema,
+            byokKey.trim()
+          );
+          resolvedTitle = String(out.sectionTitle || resolvedTitle);
+          extractedScript = cleanScriptForSpeech(String(out.script || ''));
+          methodNote = `Gemini Vision (${pageImages.length} scanned pages, BYOK)`;
+        } else {
+          const out = await postStudioEndpoint<{ sectionTitle?: string; script?: string }>({
+            action: 'pdf_multimodal',
+            pageImages,
+            userPrompt,
+            outputMode,
+          });
+          resolvedTitle = out.sectionTitle || resolvedTitle;
+          extractedScript = cleanScriptForSpeech(out.script || '');
+          methodNote = `Gemini Vision (${pageImages.length} scanned pages)`;
+        }
+      }
+    } else {
+      const activeChapters =
+        detectedChapters.length > 0
+          ? detectedChapters
+          : editorText
+            ? splitTextIntoChapters(editorText, 'Section')
+            : [];
+
+      let usedAi = false;
+      if (byok || canUseServerAi) {
+        try {
+          let rawExcerpt = '';
+          if (loadedPagesText.length > 0) {
+            const indexText = buildPdfAgentIndex(loadedPagesText, activeChapters, loadedOutlineItems);
+            let plan: PdfAgentPlan;
+            if (byok) {
+              const planSys =
+                'You are a precision document-indexing agent. Given PDF bookmarks and page previews plus a user request (which may be in English, Urdu, or Roman Urdu), identify the exact 1-based startPage and endPage range (and optional extraPages) to extract for audio recording. Keep spans focused (typically 1-25 pages) covering what the user asked for.';
+              const planSchema = {
+                type: 'OBJECT',
+                properties: {
+                  startPage: { type: 'INTEGER' },
+                  endPage: { type: 'INTEGER' },
+                  extraPages: { type: 'ARRAY', items: { type: 'INTEGER' } },
+                  sectionTitle: { type: 'STRING' },
+                  reason: { type: 'STRING' },
+                },
+                required: ['startPage', 'endPage', 'sectionTitle', 'reason'],
+              };
+              const resJson = await callByokStudioStructured(
+                planSys,
+                [
+                  {
+                    text: `Total pages: ${loadedPagesText.length}\nUser request: "${userPrompt}"\n\nDocument Index:\n${indexText}`,
+                  },
+                ],
+                planSchema,
+                byokKey.trim()
+              );
+              plan = resJson as unknown as PdfAgentPlan;
+            } else {
+              const resPlan = await postStudioEndpoint<{ plan?: PdfAgentPlan }>({
+                action: 'pdf_plan',
+                indexText,
+                totalPages: loadedPagesText.length,
+                userPrompt,
+              });
+              if (!resPlan.plan) throw new Error('Planner returned no page range.');
+              plan = resPlan.plan;
+            }
+
+            const sliced = slicePdfPages(
+              loadedPagesText,
+              plan.startPage,
+              plan.endPage,
+              Array.isArray(plan.extraPages) ? plan.extraPages : []
+            );
+            rawExcerpt = sliced.text;
+            resolvedTitle = plan.sectionTitle || resolvedTitle;
+            methodNote = `Gemini index (pages ${sliced.pagesUsed[0] || plan.startPage}–${sliced.pagesUsed[sliced.pagesUsed.length - 1] || plan.endPage})`;
+          } else {
+            const matched = localPdfAgentFallback(userPrompt, [], activeChapters, []);
+            rawExcerpt = matched.text || editorText;
+            resolvedTitle = matched.title || resolvedTitle;
+            methodNote = matched.strategyNote;
+          }
+
+          if (rawExcerpt.trim()) {
+            if (outputMode === 'verbatim') {
+              extractedScript = cleanScriptForSpeech(rawExcerpt);
+            } else {
+              setPdfAgentStatus(`Preparing clean ${outputMode} audio script for "${resolvedTitle}"…`);
+              if (byok) {
+                const modeInstructions: Record<PdfAgentOutputMode, string> = {
+                  verbatim:
+                    'Extract strictly the matching sections verbatim, removing only page numbers, broken citations like [12], URLs, and table formatting.',
+                  narrated:
+                    'Extract what the user asked for and format it as clean, natural spoken lecture prose ready for text-to-speech. Turn noisy tables/bullets into smooth spoken sentences and omit URLs/footnotes/citations. Match the language requested by the user (or keep document language if unspecified).',
+                  summary:
+                    'Create a thorough, high-clarity study summary covering every key definition, formula intuition, and takeaway requested by the user, written strictly for natural spoken listening with zero markdown symbols.',
+                  podcast:
+                    'Convert the requested parts of the excerpt into an engaging 2-speaker Host & Guest study discussion. Every line MUST start with "Host: " or "Guest: ". Zero markdown or asterisks.',
+                };
+                const sys = `${modeInstructions[outputMode]} Never use markdown formatting (*, #, backticks) or stage directions. Return ONLY the clean spoken script.`;
+                const prepared = await callByokStudioText(
+                  sys,
+                  `User instruction: ${userPrompt}\n\nDocument Excerpt:\n${rawExcerpt.slice(0, 18000)}`,
+                  byokKey.trim()
+                );
+                extractedScript = cleanScriptForSpeech(prepared);
+              } else {
+                const preparedRes = await postStudioEndpoint<{ script?: string }>({
+                  action: 'pdf_prepare',
+                  rawExcerpt: rawExcerpt.slice(0, 18000),
+                  userPrompt,
+                  outputMode,
+                });
+                extractedScript = cleanScriptForSpeech(preparedRes.script || '');
+              }
+              methodNote += ` + AI ${outputMode}`;
+            }
+            usedAi = Boolean(extractedScript.trim());
+          }
+        } catch (aiErr) {
+          usedAi = false;
+          const reason = aiErr instanceof Error ? aiErr.message : 'AI unavailable';
+          const fallback = localPdfAgentFallback(userPrompt, loadedPagesText, activeChapters, loadedOutlineItems);
+          extractedScript = fallback.text || cleanScriptForSpeech(editorText);
+          resolvedTitle = fallback.title || resolvedTitle;
+          methodNote = `${fallback.strategyNote} (local fallback: ${reason})`;
+        }
+      }
+
+      if (!usedAi && !extractedScript.trim()) {
+        const fallback = localPdfAgentFallback(userPrompt, loadedPagesText, activeChapters, loadedOutlineItems);
+        extractedScript = fallback.text || cleanScriptForSpeech(editorText);
+        resolvedTitle = fallback.title || resolvedTitle;
+        methodNote = fallback.strategyNote;
+      }
+    }
+
+    if (!extractedScript.trim()) {
+      setPdfAgentErr('Could not match any readable section for that instruction. Try specifying exact page numbers (e.g. "pages 5-10").');
+      return;
+    }
+
+    if (outputMode === 'podcast') {
+      cfg.mode = 'dialogue';
+      $<HTMLSelectElement>('#mode').value = 'dialogue';
+      syncOptionVisibility();
+      store.set('vs.cfg', cfg);
+    }
+
+    const cleanTitle = resolvedTitle.replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
+    if (cleanTitle) {
+      $<HTMLInputElement>('#audioTitle').value = cleanTitle;
+    }
+    setText(extractedScript, 'doc');
+    setPdfAgentStatus(
+      `Ready: "${cleanTitle}" (${[...extractedScript].length.toLocaleString()} chars) via ${methodNote}.`
+    );
+
+    if (shouldRecord) {
+      say(`Extracted "${cleanTitle}". Starting audio recording…`);
+      $('#gen').click();
+    } else {
+      say(`Extracted "${cleanTitle}" into the editor.`);
+      $('#text').focus();
+    }
+  } catch (err) {
+    setPdfAgentErr(err instanceof Error ? err.message : 'PDF Recording Agent could not process this request.');
+  } finally {
+    studioBusy = false;
+    ui();
+  }
+}
+
+$('#pdfAgentPickFileBtn').onclick = () => $<HTMLInputElement>('#file').click();
+$('#pdfAgentRunBtn').onclick = () => void runPdfRecordingAgent(false);
+$('#pdfAgentLoadOnlyBtn').onclick = () => void runPdfRecordingAgent(true);
+
+$('#genPodcastBtn').onclick = async () => {
+  if (!requireSignedInUser()) return;
+  const topicInput = $<HTMLInputElement>('#podcastTopic').value.trim();
+  const editorText = $<HTMLTextAreaElement>('#text').value.trim();
+  const topic = topicInput || editorText.slice(0, 5000);
+  const length = $<HTMLSelectElement>('#podcastLen').value;
+
+  if (topic.length < 3) {
+    setStudioErr('Enter a podcast topic above, or paste notes in the text box first.');
+    $('#podcastTopic').focus();
+    return;
+  }
+
+  studioBusy = true;
+  ui();
+  setStudioStatus('Generating 2-speaker podcast script…');
+  try {
+    const script = await runStudioAction({ action: 'podcast', topic, length });
+    cfg.mode = 'dialogue';
+    $<HTMLSelectElement>('#mode').value = 'dialogue';
+    syncOptionVisibility();
+    store.set('vs.cfg', cfg);
+    setText(script, 'user');
+    if (topicInput && !$<HTMLInputElement>('#audioTitle').value.trim()) {
+      $<HTMLInputElement>('#audioTitle').value = `${topicInput.slice(0, 50)} Podcast`;
+    }
+    setStudioStatus('Generated 2-speaker Host & Guest podcast script. Press Generate audio when ready!');
+    $('#text').focus();
+  } catch (err) {
+    setStudioErr(err instanceof Error ? err.message : 'Could not generate podcast script.');
+  } finally {
+    studioBusy = false;
+    ui();
+  }
+};
+
+$('#translateBtn').onclick = async () => {
+  if (!requireSignedInUser()) return;
+  const currentText = $<HTMLTextAreaElement>('#text').value.trim();
+  const targetLang = $<HTMLSelectElement>('#translateLang').value;
+  if (!currentText) {
+    setStudioErr('Enter or load some text first before translating.');
+    $('#text').focus();
+    return;
+  }
+
+  studioBusy = true;
+  ui();
+  setStudioStatus(`Translating & adapting script into ${targetLang}…`);
+  try {
+    const translated = await runStudioAction({
+      action: 'translate',
+      text: currentText.slice(0, 8000),
+      targetLang,
+    });
+    setText(translated, 'user');
+    setStudioStatus(`Translated into ${targetLang} and loaded into the editor.`);
+    $('#text').focus();
+  } catch (err) {
+    setStudioErr(err instanceof Error ? err.message : 'Could not translate text.');
+  } finally {
+    studioBusy = false;
+    ui();
+  }
+};
+
+function bindReferralUi() {
+  const copyBtn = document.getElementById('copyRefBtn');
+  const shareBtn = document.getElementById('shareRefBtn');
+  const input = document.getElementById('refLinkInput') as HTMLInputElement | null;
+  const msg = document.getElementById('refActionMsg');
+  if (!copyBtn || !shareBtn || !input || !msg) return;
+
+  copyBtn.onclick = async () => {
+    const link = input.value.trim();
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      msg.textContent = 'Invite link copied! Share it with friends to earn +2,000 bonus credits each.';
+    } catch {
+      input.select();
+      msg.textContent = 'Select and copy your invite link above.';
+    }
+  };
+
+  shareBtn.onclick = async () => {
+    const link = input.value.trim();
+    if (!link) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join Voice Studio',
+          text: 'Turn PDFs, EPUBs, and Urdu/English notes into natural audio & synced subtitles for free!',
+          url: link,
+        });
+        msg.textContent = 'Invite shared!';
+        return;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      }
+    }
+    copyBtn.click();
+  };
+}
+
 /* ---- Init ---- */
 bindSettings();
 bindContactForm();
 bindPwaAndShare();
+bindReferralUi();
 drawDict();
 route(false);
 ui();

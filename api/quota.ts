@@ -1,5 +1,5 @@
-import { forwardToHandler } from './_vercel';
+import { handleVercelNode, type NodeLikeReq, type NodeLikeRes } from './_vercel.js';
 
-export async function GET(request: Request): Promise<Response> {
-  return forwardToHandler(request);
+export default async function handler(req: NodeLikeReq, res: NodeLikeRes): Promise<void> {
+  return handleVercelNode(req, res);
 }

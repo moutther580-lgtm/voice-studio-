@@ -1,7 +1,7 @@
 {
-  "name": "Voice Studio – Accessible PDF, EPUB & DOCX to Audio Converter",
+  "name": "Voice Studio – Clean PDF, EPUB & Urdu/English Docs to MP3 Audio",
   "short_name": "Voice Studio",
-  "description": "Convert PDF, EPUB, Word DOCX, and Urdu or English notes into natural MP3 and WAV audio with screen-reader accessibility.",
+  "description": "Convert academic PDFs, EPUB ebooks, and Word DOCX notes into compact MP3 audiobooks with Urdu & English voices, synced .SRT captions, and screen-reader access.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

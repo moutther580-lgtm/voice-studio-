@@ -189,6 +189,31 @@
         }
       },
       "required": ["id", "name", "email", "subject", "message", "status", "createdAt"]
+    },
+    "ReferralRecord": {
+      "title": "ReferralRecord",
+      "description": "One-time referral attribution record keyed by invited user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "referrerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "bonusGranted": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "referrerUid", "bonusGranted", "createdAt"]
     }
   },
   "firestore": {
@@ -211,6 +236,10 @@
     "/contactMessages/{messageId}": {
       "schema": { "$ref": "#/entities/ContactMessage" },
       "description": "In-app visitor contact form submissions accessible only to the administrator."
+    },
+    "/referrals/{userId}": {
+      "schema": { "$ref": "#/entities/ReferralRecord" },
+      "description": "One-time referral attribution linked when an invited user verifies their account."
     }
   }
 }

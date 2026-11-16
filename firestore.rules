@@ -113,6 +113,15 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidReferral(data, userId) {
+      return data.keys().hasAll(['uid', 'referrerUid', 'bonusGranted', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'referrerUid', 'bonusGranted', 'createdAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.referrerUid is string && isValidId(data.referrerUid) && data.referrerUid != userId
+        && data.bonusGranted is bool
+        && data.createdAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isPrimaryAdmin();
@@ -208,6 +217,25 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
       allow delete: if isValidId(messageId) && isPrimaryAdmin();
+    }
+
+    match /referrals/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || existing().referrerUid == request.auth.uid || isAdmin());
+      allow list: if isPrimaryAdmin() || (isVerified() && resource.data.referrerUid == request.auth.uid);
+      allow create: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidReferral(incoming(), userId)
+        && incoming().bonusGranted == false
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(userId)
+        && isAdmin()
+        && isValidReferral(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().referrerUid == existing().referrerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['bonusGranted']);
+      allow delete: if isValidId(userId) && isPrimaryAdmin();
     }
   }
 }

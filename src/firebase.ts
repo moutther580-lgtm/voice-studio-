@@ -503,3 +503,115 @@ export async function adminListUsers(): Promise<UserProfileDoc[]> {
     handleFirestoreError(error, OperationType.LIST, path);
   }
 }
+
+export interface ReferralRecordDoc {
+  uid: string;
+  referrerUid: string;
+  bonusGranted: boolean;
+  createdAt?: { toDate?: () => Date };
+}
+
+export async function recordPendingReferralClient(user: User, referrerUid: string): Promise<boolean> {
+  const cleanRef = referrerUid.trim();
+  if (!user.emailVerified || !cleanRef || cleanRef === user.uid || !/^[a-zA-Z0-9_-]{6,128}$/.test(cleanRef)) {
+    return false;
+  }
+  const path = `referrals/${user.uid}`;
+  try {
+    const refDoc = doc(db, 'referrals', user.uid);
+    const snap = await getDoc(refDoc);
+    if (snap.exists()) return false;
+    await setDoc(refDoc, {
+      uid: user.uid,
+      referrerUid: cleanRef,
+      bonusGranted: false,
+      createdAt: serverTimestamp(),
+    });
+    return true;
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch {
+      return false;
+    }
+  }
+}
+
+export function subscribeMyReferrals(
+  uid: string,
+  onData: (records: ReferralRecordDoc[]) => void,
+  onErr?: (err: Error) => void
+): Unsubscribe {
+  const path = 'referrals';
+  const q = query(collection(db, path), where('referrerUid', '==', uid), limit(100));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const rows = snap.docs.map((d) => d.data() as ReferralRecordDoc);
+      rows.sort((a, b) => {
+        const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+        const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+        return tb - ta;
+      });
+      onData(rows);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (e) {
+        onErr?.(e instanceof Error ? e : new Error(String(e)));
+      }
+    }
+  );
+}
+
+export async function adminListReferrals(): Promise<ReferralRecordDoc[]> {
+  const path = 'referrals';
+  try {
+    const snap = await getDocs(query(collection(db, path), limit(100)));
+    const rows = snap.docs.map((d) => ({ ...(d.data() as ReferralRecordDoc), uid: d.id }));
+    rows.sort((a, b) => {
+      const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+      const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+      return tb - ta;
+    });
+    return rows;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+}
+
+export async function adminApproveReferral(record: ReferralRecordDoc, bonusChars = 2000): Promise<void> {
+  if (record.bonusGranted) return;
+  const path = `referrals/${record.uid}`;
+  try {
+    const walletRef = doc(db, 'wallets', record.referrerUid);
+    const walletSnap = await getDoc(walletRef);
+    if (!walletSnap.exists()) {
+      throw new Error(`Referrer account (${record.referrerUid}) does not have an active wallet yet.`);
+    }
+    const existingWallet = walletSnap.data() as UserWalletDoc;
+    const entryId = `ref_${record.uid.slice(0, 20)}_${Date.now().toString(36)}`;
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'referrals', record.uid), { bonusGranted: true });
+    batch.update(walletRef, {
+      paidCredits: Math.max(0, existingWallet.paidCredits || 0) + bonusChars,
+      dailyLimit: existingWallet.dailyLimit,
+      plan: existingWallet.plan,
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'ledger', entryId), {
+      id: entryId,
+      uid: record.referrerUid,
+      type: 'admin_grant',
+      chars: 0,
+      creditsDelta: bonusChars,
+      model: 'referral-bonus',
+      note: `Referral invite bonus approved (+${bonusChars.toLocaleString()} credits)`,
+      createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}

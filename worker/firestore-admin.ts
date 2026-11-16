@@ -59,6 +59,7 @@ async function getGoogleAccessToken(creds: ServiceAccountCreds): Promise<string>
 type FsValue =
   | { stringValue: string }
   | { integerValue: string }
+  | { booleanValue: boolean }
   | { timestampValue: string };
 
 function readStr(fields: Record<string, FsValue> | undefined, key: string, fallback = ''): string {
@@ -69,6 +70,11 @@ function readStr(fields: Record<string, FsValue> | undefined, key: string, fallb
 function readInt(fields: Record<string, FsValue> | undefined, key: string, fallback = 0): number {
   const v = fields?.[key];
   return v && 'integerValue' in v ? parseInt(v.integerValue, 10) || 0 : fallback;
+}
+
+function readBool(fields: Record<string, FsValue> | undefined, key: string, fallback = false): boolean {
+  const v = fields?.[key];
+  return v && 'booleanValue' in v ? v.booleanValue : fallback;
 }
 
 export async function getFirestoreWallet(
@@ -183,4 +189,124 @@ export async function commitFirestoreUsage(
   if (!commitRes.ok) {
     throw new Error(`Firestore commit failed (${commitRes.status})`);
   }
+}
+
+export async function creditReferralBonus(
+  creds: ServiceAccountCreds,
+  projectId: string,
+  databaseId: string,
+  newUid: string,
+  referrerUid: string,
+  bonusChars = 2000
+): Promise<{ alreadyExists: boolean; credited: boolean; bonusChars: number }> {
+  const token = await getGoogleAccessToken(creds);
+  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+
+  const existingRefRes = await fetch(`${base}/referrals/${newUid}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (existingRefRes.ok) {
+    const existingDoc = (await existingRefRes.json()) as { fields?: Record<string, FsValue> };
+    return {
+      alreadyExists: true,
+      credited: readBool(existingDoc.fields, 'bonusGranted', false),
+      bonusChars: 0,
+    };
+  }
+  if (existingRefRes.status !== 404) {
+    throw new Error(`Referral lookup failed (${existingRefRes.status})`);
+  }
+
+  const walletRes = await fetch(`${base}/wallets/${referrerUid}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const nowIso = new Date().toISOString();
+
+  if (walletRes.status === 404) {
+    await fetch(`${base}/referrals?documentId=${encodeURIComponent(newUid)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: {
+          uid: { stringValue: newUid },
+          referrerUid: { stringValue: referrerUid },
+          bonusGranted: { booleanValue: false },
+          createdAt: { timestampValue: nowIso },
+        },
+      }),
+    });
+    return { alreadyExists: false, credited: false, bonusChars: 0 };
+  }
+
+  if (!walletRes.ok) {
+    throw new Error(`Referrer wallet lookup failed (${walletRes.status})`);
+  }
+
+  const refWalletDoc = (await walletRes.json()) as { fields?: Record<string, FsValue> };
+  const f = refWalletDoc.fields;
+  const todayStr = nowIso.slice(0, 10);
+  const nextCredits = Math.max(0, readInt(f, 'paidCredits', 0)) + bonusChars;
+  const entryId = `ref_${newUid.slice(0, 24)}_${Date.now().toString(36)}`;
+
+  const commitRes = await fetch(`${base}:commit`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      writes: [
+        {
+          update: {
+            name: `projects/${projectId}/databases/${databaseId}/documents/referrals/${newUid}`,
+            fields: {
+              uid: { stringValue: newUid },
+              referrerUid: { stringValue: referrerUid },
+              bonusGranted: { booleanValue: true },
+              createdAt: { timestampValue: nowIso },
+            },
+          },
+        },
+        {
+          update: {
+            name: `projects/${projectId}/databases/${databaseId}/documents/wallets/${referrerUid}`,
+            fields: {
+              uid: { stringValue: readStr(f, 'uid', referrerUid) },
+              email: { stringValue: readStr(f, 'email', 'user@example.com') },
+              paidCredits: { integerValue: String(nextCredits) },
+              dailyUsedChars: { integerValue: String(Math.max(0, readInt(f, 'dailyUsedChars', 0))) },
+              dailyDate: { stringValue: readStr(f, 'dailyDate', todayStr) },
+              dailyLimit: { integerValue: String(Math.max(0, readInt(f, 'dailyLimit', 3000))) },
+              totalCharsUsed: { integerValue: String(Math.max(0, readInt(f, 'totalCharsUsed', 0))) },
+              plan: { stringValue: readStr(f, 'plan', 'free') === 'pro' ? 'pro' : 'free' },
+              updatedAt: { timestampValue: nowIso },
+            },
+          },
+        },
+        {
+          update: {
+            name: `projects/${projectId}/databases/${databaseId}/documents/ledger/${entryId}`,
+            fields: {
+              id: { stringValue: entryId },
+              uid: { stringValue: referrerUid },
+              type: { stringValue: 'admin_grant' },
+              chars: { integerValue: '0' },
+              creditsDelta: { integerValue: String(bonusChars) },
+              model: { stringValue: 'referral-bonus' },
+              note: { stringValue: `Referral invite bonus (+${bonusChars.toLocaleString()} credits)` },
+              createdAt: { timestampValue: nowIso },
+            },
+          },
+        },
+      ],
+    }),
+  });
+
+  if (!commitRes.ok) {
+    throw new Error(`Referral commit failed (${commitRes.status})`);
+  }
+  return { alreadyExists: false, credited: true, bonusChars };
 }

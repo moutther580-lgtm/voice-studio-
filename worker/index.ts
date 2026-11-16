@@ -1,4 +1,4 @@
-import { handleApiRequest, type WorkerEnv } from './tts-handler';
+import { handleApiRequest, type WorkerEnv } from './tts-handler.js';
 
 interface CloudflareEnv extends WorkerEnv {
   ASSETS: {
