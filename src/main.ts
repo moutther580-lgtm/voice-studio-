@@ -62,8 +62,10 @@ import type {
   PronunciationRule,
   QuotaState,
   SpeechItem,
+  SubtitleSegment,
   VoiceConfig,
 } from './types';
+import type { VideoAspect } from './video-export';
 
 const $ = <T extends HTMLElement>(selector: string): T => {
   const el = document.querySelector(selector);
@@ -137,11 +139,15 @@ let running = false;
 let previewing = false;
 let extracting = false;
 let studioBusy = false;
+let videoBusy = false;
 let ctl: AbortController | null = null;
+let videoCtl: AbortController | null = null;
 let audioUrl: string | null = null;
 let srtUrl: string | null = null;
 let vttUrl: string | null = null;
+let videoUrl: string | null = null;
 let lastBlob: Blob | null = null;
+let lastSubtitleSegments: SubtitleSegment[] = [];
 let lastName = '';
 let loadedDocTitle = '';
 let fullLoadedDocText = '';
@@ -291,26 +297,70 @@ function formatAuthError(err: unknown): string {
 }
 
 /* ---- Routing & Accessible Navigation Drawer ---- */
-const SEO_HOME_TITLE = 'Voice Studio – Clean PDF, EPUB & Urdu/English Docs to MP3 Audio';
+const SEO_HOME_TITLE = 'Voice Studio – PDF, EPUB & Urdu/English Docs to MP3 Audio & Video';
 const SEO_HOME_DESC =
-  'Convert academic PDFs, EPUB ebooks, and Word DOCX notes into clean MP3 audiobooks with Urdu & English AI voices, synced .SRT captions, and screen-reader control.';
-const pages = ['tool', 'account', 'admin', 'guides', 'formats', 'faq', 'about', 'contact', 'privacy', 'terms'] as const;
+  'Convert academic PDFs, EPUB ebooks, and Word DOCX notes into clean MP3 audiobooks with Urdu & English neural voices, synced .SRT captions, and burned-in subtitle videos.';
+const pages = [
+  'tool',
+  'pdfStudio',
+  'podcastStudio',
+  'urduTts',
+  'videoSubtitles',
+  'account',
+  'admin',
+  'guides',
+  'formats',
+  'faq',
+  'about',
+  'contact',
+  'privacy',
+  'terms',
+] as const;
 type PageId = (typeof pages)[number];
 
-function resolvePageId(): PageId {
-  const pathSlug = location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
-  if ((pages as readonly string[]).includes(pathSlug)) {
-    return pathSlug as PageId;
+const PAGE_PATHS: Record<PageId, string> = {
+  tool: '/',
+  pdfStudio: '/pdf-to-audio',
+  podcastStudio: '/podcast-studio',
+  urduTts: '/urdu-tts',
+  videoSubtitles: '/video-subtitles',
+  account: '/account',
+  admin: '/admin',
+  guides: '/guides',
+  formats: '/formats',
+  faq: '/faq',
+  about: '/about',
+  contact: '/contact',
+  privacy: '/privacy',
+  terms: '/terms',
+};
+
+function matchPageSlug(rawSlug: string): PageId | null {
+  const clean = rawSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (!clean) return 'tool';
+  for (const id of pages) {
+    const targetSlug = PAGE_PATHS[id].replace(/^\/+/, '').toLowerCase();
+    if (clean === targetSlug || clean === id.toLowerCase()) {
+      return id;
+    }
   }
-  const hashSlug = location.hash.slice(1).toLowerCase();
-  if ((pages as readonly string[]).includes(hashSlug)) {
-    return hashSlug as PageId;
+  return null;
+}
+
+function resolvePageId(): PageId {
+  const fromPath = matchPageSlug(location.pathname);
+  if (fromPath && (fromPath !== 'tool' || location.pathname === '/' || location.pathname === '')) {
+    return fromPath;
+  }
+  if (location.hash) {
+    const fromHash = matchPageSlug(location.hash.slice(1));
+    if (fromHash) return fromHash;
   }
   return 'tool';
 }
 
 function getPagePath(id: PageId): string {
-  return id === 'tool' ? '/' : `/${id}`;
+  return PAGE_PATHS[id];
 }
 
 function setBackgroundInert(isInert: boolean) {
@@ -404,6 +454,10 @@ function route(moveFocus: boolean) {
   if (id === 'admin' && isAdminActive(currentUser) && !adminDataLoaded) {
     adminDataLoaded = true;
     document.getElementById('adminRefreshAll')?.click();
+  }
+
+  if ($('#navDrawer').hidden) {
+    setBackgroundInert(false);
   }
 
   if (moveFocus) {
@@ -684,12 +738,17 @@ $('#authForm').onsubmit = async (e) => {
   const pass = passEl.value;
   const name = $<HTMLInputElement>('#authName').value.trim();
 
+  emailEl.removeAttribute('aria-invalid');
+  passEl.removeAttribute('aria-invalid');
+
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    emailEl.setAttribute('aria-invalid', 'true');
     sayAuth('Please enter a valid email address.');
     emailEl.focus();
     return;
   }
   if (pass.length < 6) {
+    passEl.setAttribute('aria-invalid', 'true');
     sayAuth('Password must be at least 6 characters.');
     passEl.focus();
     return;
@@ -1829,7 +1888,12 @@ function syncStylePresetSelect(styleValue: string) {
 function bindSettings() {
   populateSelects();
 
-  $<HTMLSelectElement>('#model').value = cfg.model;
+  const modelSel = $<HTMLSelectElement>('#model');
+  modelSel.value = cfg.model;
+  if (!modelSel.value && MODELS.length) {
+    cfg.model = MODELS[0].id;
+    modelSel.value = cfg.model;
+  }
   $<HTMLSelectElement>('#voice').value = cfg.voice;
   $<HTMLSelectElement>('#voiceB').value = cfg.voiceB;
   $<HTMLSelectElement>('#mode').value = cfg.mode;
@@ -1844,6 +1908,15 @@ function bindSettings() {
   $<HTMLSelectElement>('#speed').value = String(cfg.speed);
   $<HTMLInputElement>('#byokEnabled').checked = byokEnabled;
   $<HTMLInputElement>('#byokKey').value = byokKey;
+
+  const openPdfShortcut = document.getElementById('openPdfStudioShortcut');
+  if (openPdfShortcut) {
+    openPdfShortcut.onclick = () => navigateToPage('pdfStudio', true);
+  }
+  const openPodcastShortcut = document.getElementById('openPodcastStudioShortcut');
+  if (openPodcastShortcut) {
+    openPodcastShortcut.onclick = () => navigateToPage('podcastStudio', true);
+  }
 
   const saveCfg = () => store.set('vs.cfg', cfg);
 
@@ -2267,7 +2340,7 @@ async function callServerTts(
 
 /* ---- UI State & Generation ---- */
 function ui() {
-  const busy = running || previewing || extracting || studioBusy;
+  const busy = running || previewing || extracting || studioBusy || videoBusy;
   $<HTMLButtonElement>('#gen').disabled = busy;
   $<HTMLButtonElement>('#prev').disabled = busy;
   $<HTMLButtonElement>('#voiceDemo').disabled = busy;
@@ -2288,6 +2361,9 @@ function ui() {
   $<HTMLButtonElement>('#pdfAgentRunBtn').disabled = busy;
   $<HTMLButtonElement>('#pdfAgentLoadOnlyBtn').disabled = busy;
   $<HTMLSelectElement>('#pdfAgentOutputStyle').disabled = busy;
+  $<HTMLSelectElement>('#videoAspect').disabled = busy;
+  $<HTMLButtonElement>('#dlVideoBtn').disabled = busy;
+  $<HTMLButtonElement>('#cancelVideoBtn').hidden = !videoBusy;
 
   $<HTMLSelectElement>('#model').disabled = running;
   $<HTMLSelectElement>('#voice').disabled = running;
@@ -2338,6 +2414,8 @@ async function finishOutput(currentJob: GenerationJob) {
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   if (srtUrl) URL.revokeObjectURL(srtUrl);
   if (vttUrl) URL.revokeObjectURL(vttUrl);
+  if (videoUrl) URL.revokeObjectURL(videoUrl);
+  videoUrl = null;
 
   audioUrl = URL.createObjectURL(blob);
   srtUrl = URL.createObjectURL(new Blob([srtContent], { type: 'application/x-subrip;charset=utf-8' }));
@@ -2349,6 +2427,7 @@ async function finishOutput(currentJob: GenerationJob) {
 
   const dl = $<HTMLAnchorElement>('#dl');
   lastBlob = blob;
+  lastSubtitleSegments = segments;
   lastName = buildDownloadFilename(
     currentJob.format,
     $<HTMLInputElement>('#audioTitle').value,
@@ -2373,6 +2452,10 @@ async function finishOutput(currentJob: GenerationJob) {
   dlVtt.download = `${baseStem}.vtt`;
   dlVtt.hidden = !segments.length;
 
+  const dlVideoBtn = $<HTMLButtonElement>('#dlVideoBtn');
+  dlVideoBtn.hidden = !(blob && segments.length > 0);
+  $('#videoStatus').textContent = '';
+
   const secs = Math.round(totalPcmDurationSeconds(currentJob.parts, currentJob.rate, currentJob.sil));
   const mb = (blob.size / 1048576).toFixed(2);
   $('#info').textContent = `File: ${lastName}, ${mb} MB (${currentJob.format.toUpperCase()}) · ${segments.length} synced subtitle cues`;
@@ -2383,6 +2466,66 @@ async function finishOutput(currentJob: GenerationJob) {
   ui();
   player.focus();
 }
+
+$('#dlVideoBtn').onclick = async () => {
+  if (!lastBlob || !lastSubtitleSegments.length) {
+    $('#videoStatus').textContent = 'Generate audio with subtitles first before exporting video.';
+    return;
+  }
+
+  const aspect = ($<HTMLSelectElement>('#videoAspect').value || '16:9') as VideoAspect;
+  const videoStatusEl = $('#videoStatus');
+  videoBusy = true;
+  videoCtl = new AbortController();
+  ui();
+  videoStatusEl.textContent = `Rendering ${aspect} video with burned-in subtitles (0%)… Keep this tab active.`;
+
+  try {
+    const { renderSubtitleVideoBlob } = await import('./video-export');
+    const titleInput = $<HTMLInputElement>('#audioTitle').value.trim();
+    const displayTitle = titleInput || loadedDocTitle || 'Voice Studio';
+
+    const out = await renderSubtitleVideoBlob({
+      audioBlob: lastBlob,
+      title: displayTitle,
+      segments: lastSubtitleSegments,
+      aspect,
+      signal: videoCtl.signal,
+      onProgress: (pct) => {
+        videoStatusEl.textContent = `Rendering ${aspect} video with burned-in subtitles (${pct}%)…`;
+      },
+    });
+
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    videoUrl = URL.createObjectURL(out.blob);
+    const baseStem = (lastName || 'voice-studio').replace(/\.[^.]+$/, '');
+    const videoFilename = `${baseStem}-${aspect.replace(':', 'x')}.${out.ext}`;
+
+    const a = document.createElement('a');
+    a.href = videoUrl;
+    a.download = videoFilename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    const mb = (out.blob.size / 1048576).toFixed(2);
+    videoStatusEl.textContent = `Video ready: ${videoFilename} (${mb} MB, ${out.ext.toUpperCase()} with burned-in subtitles).`;
+  } catch (err) {
+    if (videoCtl?.signal.aborted) {
+      videoStatusEl.textContent = 'Video render cancelled.';
+    } else {
+      videoStatusEl.textContent = err instanceof Error ? err.message : 'Could not render video in this browser.';
+    }
+  } finally {
+    videoBusy = false;
+    videoCtl = null;
+    ui();
+  }
+};
+
+$('#cancelVideoBtn').onclick = () => {
+  if (videoCtl) videoCtl.abort();
+};
 
 async function run() {
   if (!job) return;
@@ -2588,8 +2731,14 @@ $('#clear').onclick = () => {
   loadedFile = null;
   loadedPagesText = [];
   loadedOutlineItems = [];
+  lastSubtitleSegments = [];
   renderChaptersBox();
   $<HTMLInputElement>('#audioTitle').value = '';
+  const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
+  if (pdfInfoEl) {
+    pdfInfoEl.textContent =
+      'No file loaded yet. Choose a PDF, EPUB, DOCX, or TXT file below (processed locally in your browser).';
+  }
   say('Text cleared.');
   $('#text').focus();
 };
@@ -2692,9 +2841,11 @@ async function handleSelectedFile(f: File) {
       renderChaptersBox();
       const isPdf = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
       if (isPdf) {
-        const msg = `${f.name} appears to be a scanned image PDF without selectable text. Open the AI PDF Recording Agent below to extract & record pages using Gemini Vision.`;
+        const msg = `${f.name} appears to be a scanned image PDF without selectable text. Use the AI PDF & Book Studio to extract & record pages with Gemini Vision.`;
         const agentStatus = document.getElementById('pdfAgentStatus');
         if (agentStatus) agentStatus.textContent = msg;
+        const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
+        if (pdfInfoEl) pdfInfoEl.textContent = msg;
         say(msg);
       } else {
         say(`No readable text was found inside ${f.name}.`);
@@ -2716,9 +2867,14 @@ async function handleSelectedFile(f: File) {
     if (res.chapters) details.push(`${res.chapters} chapters`);
     const cleanNote = res.removedLines ? ` Cleaned ${res.removedLines} header or page-number lines.` : '';
     say(`Loaded ${f.name} (${details.join(', ')}), ${[...res.text].length.toLocaleString()} characters.${cleanNote}`);
+    const readyMsg = `Loaded: ${f.name} (${details.join(', ')}). Enter which chapter, topic, or page range to extract below.`;
     const agentStatus = document.getElementById('pdfAgentStatus');
     if (agentStatus) {
-      agentStatus.textContent = `Ready: ${f.name} (${details.join(', ')}). Enter what to extract below.`;
+      agentStatus.textContent = readyMsg;
+    }
+    const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
+    if (pdfInfoEl) {
+      pdfInfoEl.textContent = readyMsg;
     }
   } catch {
     say(`Could not read ${f.name}. Make sure it is a valid PDF, DOCX, EPUB, or text file.`);
@@ -2810,6 +2966,29 @@ function bindContactForm() {
     const subjectEl = $<HTMLSelectElement>('#contactSubject');
     const messageEl = $<HTMLTextAreaElement>('#contactMessage');
 
+    nameEl.removeAttribute('aria-invalid');
+    emailEl.removeAttribute('aria-invalid');
+    messageEl.removeAttribute('aria-invalid');
+
+    if (nameEl.value.trim().length < 2) {
+      nameEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter your full name (at least 2 characters).';
+      nameEl.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+      emailEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter a valid reply email address.';
+      emailEl.focus();
+      return;
+    }
+    if (messageEl.value.trim().length < 10) {
+      messageEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter a message of at least 10 characters.';
+      messageEl.focus();
+      return;
+    }
+
     submitBtn.disabled = true;
     statusEl.textContent = 'Sending your message…';
 
@@ -2821,7 +3000,7 @@ function bindContactForm() {
         message: messageEl.value,
       });
       messageEl.value = '';
-      statusEl.textContent = `Message sent! Your note has been delivered directly to the Voice Studio developer without leaving this page (Reference: ${refId}).`;
+      statusEl.textContent = `Message sent. Reference: ${refId}.`;
       statusEl.focus?.();
     } catch (err) {
       statusEl.textContent = '';
@@ -2831,9 +3010,16 @@ function bindContactForm() {
       } else {
         errEl.textContent = raw;
       }
-      if (nameEl.value.trim().length < 2) nameEl.focus();
-      else if (!emailEl.value.includes('@')) emailEl.focus();
-      else if (messageEl.value.trim().length < 10) messageEl.focus();
+      if (nameEl.value.trim().length < 2) {
+        nameEl.setAttribute('aria-invalid', 'true');
+        nameEl.focus();
+      } else if (!emailEl.value.includes('@')) {
+        emailEl.setAttribute('aria-invalid', 'true');
+        emailEl.focus();
+      } else if (messageEl.value.trim().length < 10) {
+        messageEl.setAttribute('aria-invalid', 'true');
+        messageEl.focus();
+      }
     } finally {
       submitBtn.disabled = false;
     }
@@ -3101,7 +3287,7 @@ $('#applyTemplateBtn').onclick = () => {
   const current = $<HTMLTextAreaElement>('#text').value.trim();
   if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
     sampleReplaceArmed = true;
-    setStudioStatus('Your editor already has text. Press Load selected template again to replace it.');
+    setStudioStatus('Your Speech Studio editor already has text. Press Load selected template again to replace it.');
     return;
   }
   cfg.mode = tpl.mode;
@@ -3114,8 +3300,9 @@ $('#applyTemplateBtn').onclick = () => {
   loadedDocTitle = '';
   $<HTMLInputElement>('#audioTitle').value = tpl.title;
   setText(tpl.text, 'sample');
-  setStudioStatus(`Loaded "${tpl.title}" template (${tpl.mode === 'dialogue' ? '2-speaker dialogue' : 'single voice'}).`);
-  $('#text').focus();
+  setStudioStatus(
+    `Loaded "${tpl.title}" (${tpl.mode === 'dialogue' ? '2-speaker dialogue' : 'single voice'}). Open Speech Studio or generate audio below.`
+  );
 };
 
 async function callByokStudioText(systemInstruction: string, prompt: string, key: string): Promise<string> {
@@ -3543,10 +3730,12 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
     );
 
     if (shouldRecord) {
+      navigateToPage('tool', false);
       say(`Extracted "${cleanTitle}". Starting audio recording…`);
       $('#gen').click();
     } else {
-      say(`Extracted "${cleanTitle}" into the editor.`);
+      navigateToPage('tool', false);
+      say(`Extracted "${cleanTitle}" into the Speech Studio editor.`);
       $('#text').focus();
     }
   } catch (err) {
@@ -3569,7 +3758,7 @@ $('#genPodcastBtn').onclick = async () => {
   const length = $<HTMLSelectElement>('#podcastLen').value;
 
   if (topic.length < 3) {
-    setStudioErr('Enter a podcast topic above, or paste notes in the text box first.');
+    setStudioErr('Enter a podcast topic above, or paste notes in Speech Studio first.');
     $('#podcastTopic').focus();
     return;
   }
@@ -3587,8 +3776,9 @@ $('#genPodcastBtn').onclick = async () => {
     if (topicInput && !$<HTMLInputElement>('#audioTitle').value.trim()) {
       $<HTMLInputElement>('#audioTitle').value = `${topicInput.slice(0, 50)} Podcast`;
     }
-    setStudioStatus('Generated 2-speaker Host & Guest podcast script. Press Generate audio when ready!');
-    $('#text').focus();
+    setStudioStatus(
+      `Generated 2-speaker podcast script (${[...script].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
+    );
   } catch (err) {
     setStudioErr(err instanceof Error ? err.message : 'Could not generate podcast script.');
   } finally {
@@ -3602,8 +3792,7 @@ $('#translateBtn').onclick = async () => {
   const currentText = $<HTMLTextAreaElement>('#text').value.trim();
   const targetLang = $<HTMLSelectElement>('#translateLang').value;
   if (!currentText) {
-    setStudioErr('Enter or load some text first before translating.');
-    $('#text').focus();
+    setStudioErr('Enter or load text in Speech Studio first before translating.');
     return;
   }
 
@@ -3617,14 +3806,33 @@ $('#translateBtn').onclick = async () => {
       targetLang,
     });
     setText(translated, 'user');
-    setStudioStatus(`Translated into ${targetLang} and loaded into the editor.`);
-    $('#text').focus();
+    setStudioStatus(
+      `Translated into ${targetLang} (${[...translated].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
+    );
   } catch (err) {
     setStudioErr(err instanceof Error ? err.message : 'Could not translate text.');
   } finally {
     studioBusy = false;
     ui();
   }
+};
+
+$('#sendStudioToSpeechBtn').onclick = () => {
+  if (!$<HTMLTextAreaElement>('#text').value.trim()) {
+    setStudioErr('Load a template, generate a podcast script, or enter text first.');
+    return;
+  }
+  navigateToPage('tool', false);
+  $('#text').focus();
+};
+
+$('#recordFromStudioBtn').onclick = () => {
+  if (!$<HTMLTextAreaElement>('#text').value.trim()) {
+    setStudioErr('Load a template, generate a podcast script, or enter text first.');
+    return;
+  }
+  navigateToPage('tool', false);
+  $('#gen').click();
 };
 
 function bindReferralUi() {

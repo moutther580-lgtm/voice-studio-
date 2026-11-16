@@ -294,15 +294,39 @@ export function parseAudio(u8: Uint8Array, mime?: string): { pcm: Uint8Array; ra
 }
 
 export function fade(p: Uint8Array, rate: number): Uint8Array {
-  const out = p.slice();
-  const dv = new DataView(out.buffer);
-  const n = out.length >> 1;
-  const f = Math.min(Math.floor(rate * 0.008), n >> 1);
+  const n = p.byteLength >> 1;
+  if (n <= 0) return p.slice();
+  const out = new Uint8Array(n * 2);
+  const srcView = new DataView(p.buffer, p.byteOffset, n * 2);
+  const dstView = new DataView(out.buffer);
+
+  // Measure and remove tiny DC bias so silence transitions never produce a low-frequency thump
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += srcView.getInt16(i * 2, true);
+  }
+  const dc = Math.round(sum / n);
+  const removeDc = Math.abs(dc) >= 2 && Math.abs(dc) < 4000 ? dc : 0;
+
+  for (let i = 0; i < n; i++) {
+    const v = srcView.getInt16(i * 2, true) - removeDc;
+    dstView.setInt16(i * 2, v < -32768 ? -32768 : v > 32767 ? 32767 : v, true);
+  }
+
+  // Zero first/last 2ms boundary and apply 24ms raised-cosine (Hann) fade-in & fade-out
+  const edgeZero = Math.min(Math.floor(rate * 0.002), n >> 3);
+  for (let i = 0; i < edgeZero; i++) {
+    dstView.setInt16(i * 2, 0, true);
+    dstView.setInt16((n - 1 - i) * 2, 0, true);
+  }
+
+  const f = Math.min(Math.floor(rate * 0.024), Math.max(0, (n >> 1) - edgeZero));
   for (let i = 0; i < f; i++) {
-    const g = i / f;
-    const j = n - 1 - i;
-    dv.setInt16(i * 2, Math.round(dv.getInt16(i * 2, true) * g), true);
-    dv.setInt16(j * 2, Math.round(dv.getInt16(j * 2, true) * g), true);
+    const g = 0.5 * (1 - Math.cos((Math.PI * i) / f));
+    const left = edgeZero + i;
+    const right = n - 1 - edgeZero - i;
+    dstView.setInt16(left * 2, Math.round(dstView.getInt16(left * 2, true) * g), true);
+    dstView.setInt16(right * 2, Math.round(dstView.getInt16(right * 2, true) * g), true);
   }
   return out;
 }
@@ -368,7 +392,7 @@ function uint8ToInt16(u8: Uint8Array): Int16Array {
   return new Int16Array(copy.buffer, 0, samples);
 }
 
-/** Async chunked MP3 encoding so the UI and screen readers stay responsive even for 1+ hour audio. */
+/** Async chunked MP3 encoding aligned strictly to 1152-sample MPEG frames so inter-part joins have zero clicks. */
 export async function encodeMp3Blob(
   parts: Uint8Array[],
   rate: number,
@@ -378,7 +402,8 @@ export async function encodeMp3Blob(
 ): Promise<Blob> {
   const encoder = new Mp3Encoder(1, rate, kbps);
   const mp3Data: BlobPart[] = [];
-  const blockSize = 1152 * 16;
+  const frameSize = 1152;
+  const batchSamples = frameSize * 16;
   const silSamples = Math.floor((rate * silMs) / 1000);
   const sil = silSamples > 0 ? new Int16Array(silSamples) : null;
 
@@ -389,31 +414,60 @@ export async function encodeMp3Blob(
 
   let processedSamples = 0;
   let lastYield = performance.now();
+  const ring = new Int16Array(batchSamples);
+  let ringLen = 0;
 
-  const encodeSlice = async (pcm16: Int16Array) => {
-    for (let pos = 0; pos < pcm16.length; pos += blockSize) {
-      const slice = pcm16.subarray(pos, Math.min(pos + blockSize, pcm16.length));
-      const encoded = encoder.encodeBuffer(slice);
+  const flushRing = async (padFinalFrame: boolean) => {
+    if (ringLen === 0) return;
+    if (padFinalFrame && ringLen % frameSize !== 0) {
+      const padded = Math.ceil(ringLen / frameSize) * frameSize;
+      ring.fill(0, ringLen, padded);
+      ringLen = padded;
+    }
+    const aligned = padFinalFrame ? ringLen : Math.floor(ringLen / frameSize) * frameSize;
+    if (aligned > 0) {
+      const encoded = encoder.encodeBuffer(ring.subarray(0, aligned));
       if (encoded.length > 0) {
         mp3Data.push(new Uint8Array(encoded) as unknown as BlobPart);
       }
-      processedSamples += slice.length;
-      if (performance.now() - lastYield > 40) {
-        if (onProgress && totalSamples > 0) {
-          onProgress(Math.min(99, Math.floor((processedSamples * 100) / totalSamples)));
-        }
-        await new Promise((r) => setTimeout(r, 0));
-        lastYield = performance.now();
+      const rem = ringLen - aligned;
+      if (rem > 0) {
+        ring.copyWithin(0, aligned, ringLen);
+      }
+      ringLen = rem;
+    }
+    if (performance.now() - lastYield > 40) {
+      if (onProgress && totalSamples > 0) {
+        onProgress(Math.min(99, Math.floor((processedSamples * 100) / totalSamples)));
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      lastYield = performance.now();
+    }
+  };
+
+  const pushPcm16 = async (pcm16: Int16Array) => {
+    let pos = 0;
+    while (pos < pcm16.length) {
+      const space = batchSamples - ringLen;
+      const take = Math.min(space, pcm16.length - pos);
+      ring.set(pcm16.subarray(pos, pos + take), ringLen);
+      ringLen += take;
+      pos += take;
+      processedSamples += take;
+      if (ringLen >= batchSamples) {
+        await flushRing(false);
       }
     }
   };
 
   for (let i = 0; i < parts.length; i++) {
     if (i && sil) {
-      await encodeSlice(sil);
+      await pushPcm16(sil);
     }
-    await encodeSlice(uint8ToInt16(parts[i]));
+    await pushPcm16(uint8ToInt16(parts[i]));
   }
+
+  await flushRing(true);
 
   const tail = encoder.flush();
   if (tail.length > 0) {
