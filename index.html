@@ -188,6 +188,21 @@
 
 <header class="site-header" id="siteHeader">
   <div class="wrap header-inner">
+    <button
+      id="openA11yBtn"
+      type="button"
+      class="sec a11y-trigger-btn"
+      aria-label="Accessibility settings"
+      aria-expanded="false"
+      aria-controls="a11yDrawer"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="4.5" r="2" fill="currentColor"/>
+        <path d="M4 8.5h16M12 8.5v5.5m0 0-3.5 6.5m3.5-6.5 3.5 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+      <span>Accessibility</span>
+    </button>
+
     <div class="header-left">
       <button
         id="openDrawerBtn"
@@ -214,10 +229,85 @@
 
     <div class="header-actions" id="headerActions">
       <span class="header-user" id="headerUser" hidden></span>
+      <button id="headerAdminBtn" type="button" class="sec" hidden>Admin Panel</button>
       <button id="headerAuthBtn" type="button" class="sec">Sign in</button>
     </div>
   </div>
 </header>
+
+<div id="a11yBackdrop" class="drawer-backdrop" hidden></div>
+<aside
+  id="a11yDrawer"
+  class="nav-drawer nav-drawer-right"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="a11yTitle"
+  hidden
+>
+  <div class="drawer-head">
+    <h2 id="a11yTitle">Accessibility Settings</h2>
+    <button id="closeA11yBtn" type="button" class="sec" aria-label="Close accessibility settings drawer">Close</button>
+  </div>
+
+  <div class="a11y-panel-form">
+    <p class="hint">Customize display contrast, text scale, typography, focus visibility, and motion in this browser.</p>
+
+    <h3 class="a11y-group-title">Perceivable: Contrast &amp; Text</h3>
+    <label for="a11yContrast">Contrast &amp; theme</label>
+    <select id="a11yContrast">
+      <option value="system">System default</option>
+      <option value="light">Standard light</option>
+      <option value="dark">Dark mode</option>
+      <option value="hc-dark">High contrast (Black &amp; Yellow)</option>
+      <option value="hc-light">High contrast (White &amp; Black)</option>
+    </select>
+
+    <label for="a11yFontScale">Text size</label>
+    <select id="a11yFontScale">
+      <option value="1">100% (Default)</option>
+      <option value="1.15">115% (Medium)</option>
+      <option value="1.3">130% (Large)</option>
+      <option value="1.5">150% (Larger)</option>
+      <option value="1.75">175% (Extra large)</option>
+      <option value="2">200% (Maximum)</option>
+    </select>
+
+    <label for="a11yFontFamily">Reading font</label>
+    <select id="a11yFontFamily">
+      <option value="default">Default sans-serif</option>
+      <option value="readable">Verdana / Tahoma</option>
+      <option value="serif">Georgia serif</option>
+      <option value="mono">Monospace</option>
+    </select>
+
+    <label class="inline-check">
+      <input id="a11ySpacing" type="checkbox">
+      <span>Increased line, letter &amp; paragraph spacing</span>
+    </label>
+
+    <h3 class="a11y-group-title">Operable: Focus, Links &amp; Motion</h3>
+    <label class="inline-check">
+      <input id="a11yStrongFocus" type="checkbox">
+      <span>Always show thick focus border</span>
+    </label>
+
+    <label class="inline-check">
+      <input id="a11yHighlightLinks" type="checkbox">
+      <span>Highlight &amp; underline all links</span>
+    </label>
+
+    <label class="inline-check">
+      <input id="a11yReduceMotion" type="checkbox">
+      <span>Reduce motion &amp; animations</span>
+    </label>
+
+    <div class="btn-group">
+      <button id="a11yResetBtn" type="button" class="sec full">Reset display settings</button>
+    </div>
+
+    <p id="a11yStatus" class="hint" role="status" aria-live="polite"></p>
+  </div>
+</aside>
 
 <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 <aside
@@ -265,6 +355,9 @@
 </aside>
 
 <main id="main" tabindex="-1">
+  <div id="siteNoticeBanner" class="wrap" hidden>
+    <p id="siteNoticeText" class="note-box" role="status" aria-live="polite"></p>
+  </div>
   <div class="wrap">
     <section id="tool" data-title="Converter">
 

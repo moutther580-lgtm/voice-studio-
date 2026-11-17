@@ -1,9 +1,9 @@
-const CACHE_NAME = 'voice-studio-shell-v1';
+const CACHE_NAME = 'voice-studio-shell-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(['/manifest.webmanifest', '/icon-192.png', '/icon-512.png'])).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'])).catch(() => {})
   );
 });
 
@@ -19,7 +19,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
-  // Network-first shell strategy: keeps UI fresh while providing offline fallback for cached shell assets
+  // Network-first shell strategy: keeps UI fresh while providing offline fallback for cached shell assets and SPA routes
   event.respondWith(
     fetch(req)
       .then((res) => {
@@ -29,6 +29,14 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(req))
+      .catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        if (req.mode === 'navigate') {
+          const shell = await caches.match('/');
+          if (shell) return shell;
+        }
+        return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+      })
   );
 });

@@ -122,6 +122,21 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidServerConfig(data, configId) {
+      return data.keys().hasAll(['id', 'geminiApiKey', 'dailyFreeCharLimit', 'globalDailyFreeChars', 'maintenanceMode', 'siteNotice', 'allowPdfStudio', 'allowPodcastStudio', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'geminiApiKey', 'dailyFreeCharLimit', 'globalDailyFreeChars', 'maintenanceMode', 'siteNotice', 'allowPdfStudio', 'allowPodcastStudio', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == configId && isValidId(data.id)
+        && data.geminiApiKey is string && data.geminiApiKey.size() <= 256
+        && data.dailyFreeCharLimit is int && data.dailyFreeCharLimit >= 0 && data.dailyFreeCharLimit <= 1000000
+        && data.globalDailyFreeChars is int && data.globalDailyFreeChars >= 0 && data.globalDailyFreeChars <= 100000000
+        && data.maintenanceMode is bool
+        && data.siteNotice is string && data.siteNotice.size() <= 400
+        && data.allowPdfStudio is bool
+        && data.allowPodcastStudio is bool
+        && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 254
+        && data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isPrimaryAdmin();
@@ -167,10 +182,12 @@ service cloud.firestore {
           )
         );
       allow update: if isValidWalletId(walletId)
-        && isAdmin()
         && isValidWallet(incoming(), walletId)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyLimit', 'plan', 'updatedAt']);
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyLimit', 'plan', 'updatedAt'])) ||
+          (isPrimaryAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyUsedChars', 'dailyDate', 'dailyLimit', 'plan', 'updatedAt']))
+        );
       allow delete: if isPrimaryAdmin() && isValidWalletId(walletId);
     }
 
@@ -236,6 +253,21 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['bonusGranted']);
       allow delete: if isValidId(userId) && isPrimaryAdmin();
+    }
+
+    match /serverConfig/{configId} {
+      allow get: if isValidId(configId) && isPrimaryAdmin();
+      allow list: if isPrimaryAdmin();
+      allow create: if isValidId(configId)
+        && isPrimaryAdmin()
+        && isValidServerConfig(incoming(), configId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(configId)
+        && isPrimaryAdmin()
+        && isValidServerConfig(incoming(), configId)
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(configId) && isPrimaryAdmin();
     }
   }
 }

@@ -5,13 +5,18 @@ import {
   adminApproveReferral,
   adminDeleteContactMessage,
   adminFindWallet,
+  adminGetServerConfig,
+  adminGrantBulkCredits,
   adminGrantCredits,
   adminListContactMessages,
   adminListRecentLedger,
   adminListReferrals,
   adminListUsers,
   adminListWallets,
+  adminResetUserDailyUsage,
+  adminSaveServerConfig,
   adminSetContactMessageStatus,
+  adminUpdateUserRole,
   auth,
   ensureUserAndWallet,
   recordPendingReferralClient,
@@ -29,6 +34,7 @@ import {
   type ContactMessageDoc,
   type LedgerEntryDoc,
   type ReferralRecordDoc,
+  type ServerConfigDoc,
   type UserProfileDoc,
   type UserWalletDoc,
 } from './firebase';
@@ -296,7 +302,7 @@ function formatAuthError(err: unknown): string {
   return msg;
 }
 
-/* ---- Routing & Accessible Navigation Drawer ---- */
+/* ---- Routing & Navigation Drawer ---- */
 const SEO_HOME_TITLE = 'Voice Studio – PDF, EPUB & Urdu/English Docs to MP3 Audio & Video';
 const SEO_HOME_DESC =
   'Convert academic PDFs, EPUB ebooks, and Word DOCX notes into clean MP3 audiobooks with Urdu & English neural voices, synced .SRT captions, and burned-in subtitle videos.';
@@ -373,16 +379,178 @@ function setBackgroundInert(isInert: boolean) {
   }
 }
 
-function getDrawerFocusable(): HTMLElement[] {
-  const drawer = $('#navDrawer');
+function getFocusableInside(container: HTMLElement): HTMLElement[] {
   return Array.from(
-    drawer.querySelectorAll<HTMLElement>(
+    container.querySelectorAll<HTMLElement>(
       'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
     )
   ).filter((el) => !el.hidden && el.offsetParent !== null);
 }
 
+interface A11yPrefs {
+  contrast: 'system' | 'light' | 'dark' | 'hc-dark' | 'hc-light';
+  fontScale: string;
+  fontFamily: 'default' | 'readable' | 'serif' | 'mono';
+  spacing: boolean;
+  strongFocus: boolean;
+  highlightLinks: boolean;
+  reduceMotion: boolean;
+}
+
+const DEFAULT_A11Y: A11yPrefs = {
+  contrast: 'system',
+  fontScale: '1',
+  fontFamily: 'default',
+  spacing: false,
+  strongFocus: false,
+  highlightLinks: false,
+  reduceMotion: false,
+};
+
+const loadedA11y = store.get<Partial<A11yPrefs>>('vs.a11y', {});
+const a11yPrefs: A11yPrefs = {
+  contrast: ['system', 'light', 'dark', 'hc-dark', 'hc-light'].includes(String(loadedA11y.contrast))
+    ? (loadedA11y.contrast as A11yPrefs['contrast'])
+    : DEFAULT_A11Y.contrast,
+  fontScale: ['1', '1.15', '1.3', '1.5', '1.75', '2'].includes(String(loadedA11y.fontScale))
+    ? String(loadedA11y.fontScale)
+    : DEFAULT_A11Y.fontScale,
+  fontFamily: ['default', 'readable', 'serif', 'mono'].includes(String(loadedA11y.fontFamily))
+    ? (loadedA11y.fontFamily as A11yPrefs['fontFamily'])
+    : DEFAULT_A11Y.fontFamily,
+  spacing: Boolean(loadedA11y.spacing),
+  strongFocus: Boolean(loadedA11y.strongFocus),
+  highlightLinks: Boolean(loadedA11y.highlightLinks),
+  reduceMotion: Boolean(loadedA11y.reduceMotion),
+};
+
+function applyA11ySettings() {
+  const root = document.documentElement;
+  if (a11yPrefs.contrast === 'system') {
+    root.removeAttribute('data-theme');
+  } else {
+    root.setAttribute('data-theme', a11yPrefs.contrast);
+  }
+
+  root.style.setProperty('--a11y-scale', a11yPrefs.fontScale || '1');
+
+  if (a11yPrefs.fontFamily === 'readable') {
+    root.style.setProperty('--a11y-font', "Verdana, Tahoma, 'Segoe UI', sans-serif");
+  } else if (a11yPrefs.fontFamily === 'serif') {
+    root.style.setProperty('--a11y-font', "Georgia, 'Times New Roman', serif");
+  } else if (a11yPrefs.fontFamily === 'mono') {
+    root.style.setProperty('--a11y-font', "ui-monospace, 'Cascadia Mono', Consolas, monospace");
+  } else {
+    root.style.removeProperty('--a11y-font');
+  }
+
+  root.setAttribute('data-spacing', a11yPrefs.spacing ? 'on' : 'off');
+  root.setAttribute('data-strong-focus', a11yPrefs.strongFocus ? 'on' : 'off');
+  root.setAttribute('data-highlight-links', a11yPrefs.highlightLinks ? 'on' : 'off');
+  root.setAttribute('data-reduce-motion', a11yPrefs.reduceMotion ? 'on' : 'off');
+}
+
+applyA11ySettings();
+
+function openA11yDrawer() {
+  closeDrawer(false);
+  const drawer = $('#a11yDrawer');
+  const backdrop = $('#a11yBackdrop');
+  const openBtn = $('#openA11yBtn');
+  if (!drawer.hidden) return;
+  backdrop.hidden = false;
+  drawer.hidden = false;
+  openBtn.setAttribute('aria-expanded', 'true');
+  setBackgroundInert(true);
+  $('#closeA11yBtn').focus();
+}
+
+function closeA11yDrawer(restoreFocus = true) {
+  const drawer = $('#a11yDrawer');
+  const backdrop = $('#a11yBackdrop');
+  const openBtn = $('#openA11yBtn');
+  if (drawer.hidden) return;
+  drawer.hidden = true;
+  backdrop.hidden = true;
+  openBtn.setAttribute('aria-expanded', 'false');
+  setBackgroundInert(false);
+  if (restoreFocus) openBtn.focus();
+}
+
+function bindA11ySettings() {
+  const contrastEl = $<HTMLSelectElement>('#a11yContrast');
+  const scaleEl = $<HTMLSelectElement>('#a11yFontScale');
+  const fontEl = $<HTMLSelectElement>('#a11yFontFamily');
+  const spacingEl = $<HTMLInputElement>('#a11ySpacing');
+  const strongFocusEl = $<HTMLInputElement>('#a11yStrongFocus');
+  const highlightLinksEl = $<HTMLInputElement>('#a11yHighlightLinks');
+  const reduceMotionEl = $<HTMLInputElement>('#a11yReduceMotion');
+  const statusEl = $('#a11yStatus');
+
+  const syncInputs = () => {
+    contrastEl.value = a11yPrefs.contrast;
+    scaleEl.value = a11yPrefs.fontScale;
+    fontEl.value = a11yPrefs.fontFamily;
+    spacingEl.checked = a11yPrefs.spacing;
+    strongFocusEl.checked = a11yPrefs.strongFocus;
+    highlightLinksEl.checked = a11yPrefs.highlightLinks;
+    reduceMotionEl.checked = a11yPrefs.reduceMotion;
+  };
+  syncInputs();
+
+  const saveAndApply = (msg: string) => {
+    store.set('vs.a11y', a11yPrefs);
+    applyA11ySettings();
+    statusEl.textContent = msg;
+  };
+
+  contrastEl.addEventListener('change', () => {
+    a11yPrefs.contrast = contrastEl.value as A11yPrefs['contrast'];
+    const label = contrastEl.options[contrastEl.selectedIndex]?.text || a11yPrefs.contrast;
+    saveAndApply(`Theme updated: ${label}.`);
+  });
+
+  scaleEl.addEventListener('change', () => {
+    a11yPrefs.fontScale = scaleEl.value;
+    saveAndApply(`Text size set to ${Math.round(Number(a11yPrefs.fontScale) * 100)}%.`);
+  });
+
+  fontEl.addEventListener('change', () => {
+    a11yPrefs.fontFamily = fontEl.value as A11yPrefs['fontFamily'];
+    const label = fontEl.options[fontEl.selectedIndex]?.text || a11yPrefs.fontFamily;
+    saveAndApply(`Reading font changed to ${label}.`);
+  });
+
+  spacingEl.addEventListener('change', () => {
+    a11yPrefs.spacing = spacingEl.checked;
+    saveAndApply(a11yPrefs.spacing ? 'Increased text spacing enabled.' : 'Default text spacing restored.');
+  });
+
+  strongFocusEl.addEventListener('change', () => {
+    a11yPrefs.strongFocus = strongFocusEl.checked;
+    saveAndApply(a11yPrefs.strongFocus ? 'Thick focus border always active.' : 'Default keyboard focus ring restored.');
+  });
+
+  highlightLinksEl.addEventListener('change', () => {
+    a11yPrefs.highlightLinks = highlightLinksEl.checked;
+    saveAndApply(a11yPrefs.highlightLinks ? 'Link highlights enabled.' : 'Default link styling restored.');
+  });
+
+  reduceMotionEl.addEventListener('change', () => {
+    a11yPrefs.reduceMotion = reduceMotionEl.checked;
+    saveAndApply(a11yPrefs.reduceMotion ? 'Reduced motion enabled.' : 'Default motion restored.');
+  });
+
+  $('#a11yResetBtn').onclick = () => {
+    Object.assign(a11yPrefs, DEFAULT_A11Y);
+    syncInputs();
+    saveAndApply('Display settings reset to defaults.');
+    contrastEl.focus();
+  };
+}
+
 function openDrawer() {
+  closeA11yDrawer(false);
   const drawer = $('#navDrawer');
   const backdrop = $('#drawerBackdrop');
   const openBtn = $('#openDrawerBtn');
@@ -456,7 +624,7 @@ function route(moveFocus: boolean) {
     document.getElementById('adminRefreshAll')?.click();
   }
 
-  if ($('#navDrawer').hidden) {
+  if ($('#navDrawer').hidden && $('#a11yDrawer').hidden) {
     setBackgroundInert(false);
   }
 
@@ -480,6 +648,7 @@ function navigateToPage(id: PageId, moveFocus = true) {
     history.pushState(null, '', targetPath);
   }
   closeDrawer(false);
+  closeA11yDrawer(false);
   route(moveFocus);
 }
 
@@ -487,27 +656,31 @@ window.addEventListener('popstate', () => route(true));
 window.addEventListener('hashchange', () => route(true));
 
 document.addEventListener('keydown', (e) => {
-  const drawer = document.getElementById('navDrawer');
-  if (!drawer || drawer.hidden) return;
+  const navDrawer = document.getElementById('navDrawer');
+  const a11yDrawer = document.getElementById('a11yDrawer');
+  const activeDrawer =
+    navDrawer && !navDrawer.hidden ? navDrawer : a11yDrawer && !a11yDrawer.hidden ? a11yDrawer : null;
+  if (!activeDrawer) return;
 
   if (e.key === 'Escape') {
     e.preventDefault();
-    closeDrawer(true);
+    if (activeDrawer === navDrawer) closeDrawer(true);
+    else closeA11yDrawer(true);
     return;
   }
 
   if (e.key === 'Tab') {
-    const focusables = getDrawerFocusable();
+    const focusables = getFocusableInside(activeDrawer);
     if (!focusables.length) return;
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
     const active = document.activeElement as HTMLElement | null;
     if (e.shiftKey) {
-      if (!active || active === first || !drawer.contains(active)) {
+      if (!active || active === first || !activeDrawer.contains(active)) {
         e.preventDefault();
         last.focus();
       }
-    } else if (!active || active === last || !drawer.contains(active)) {
+    } else if (!active || active === last || !activeDrawer.contains(active)) {
       e.preventDefault();
       first.focus();
     }
@@ -517,6 +690,9 @@ document.addEventListener('keydown', (e) => {
 $('#openDrawerBtn').onclick = () => openDrawer();
 $('#closeDrawerBtn').onclick = () => closeDrawer(true);
 $('#drawerBackdrop').onclick = () => closeDrawer(true);
+$('#openA11yBtn').onclick = () => openA11yDrawer();
+$('#closeA11yBtn').onclick = () => closeA11yDrawer(true);
+$('#a11yBackdrop').onclick = () => closeA11yDrawer(true);
 
 document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
   link.addEventListener('click', (e) => {
@@ -837,6 +1013,42 @@ function triggerHeaderOrDrawerAuth() {
 
 $('#headerAuthBtn').onclick = triggerHeaderOrDrawerAuth;
 $('#drawerAuthBtn').onclick = triggerHeaderOrDrawerAuth;
+$('#headerAdminBtn').onclick = () => {
+  if (isAdminActive(currentUser)) {
+    navigateToPage('admin', true);
+  }
+};
+
+async function loadPublicSiteStatus() {
+  try {
+    const res = await fetch('/api/health');
+    if (!res.ok) return;
+    const h = (await res.json()) as {
+      backendConfigured?: boolean;
+      maintenanceMode?: boolean;
+      siteNotice?: string;
+    };
+    const banner = document.getElementById('siteNoticeBanner');
+    const bannerText = document.getElementById('siteNoticeText');
+    if (banner && bannerText) {
+      const msg = h.maintenanceMode
+        ? h.siteNotice || 'Shared speech generation is temporarily paused for maintenance. Personal key mode remains available.'
+        : h.siteNotice || '';
+      if (msg) {
+        banner.hidden = false;
+        bannerText.textContent = msg;
+      } else {
+        banner.hidden = true;
+        bannerText.textContent = '';
+      }
+    }
+    if (typeof h.backendConfigured === 'boolean') {
+      renderServerHealthStatus(h.backendConfigured ? 'ready' : 'nokey');
+    }
+  } catch {
+    // Ignore transient health check error
+  }
+}
 
 async function handleAuthUser(user: User | null) {
   clearFirestoreListeners();
@@ -847,6 +1059,7 @@ async function handleAuthUser(user: User | null) {
 
   const headerUser = $('#headerUser');
   const headerAuthBtn = $('#headerAuthBtn');
+  const headerAdminBtn = $('#headerAdminBtn');
   const drawerUser = $('#drawerUser');
   const drawerAuthBtn = $('#drawerAuthBtn');
   const navAccountLink = $('#navAccountLink');
@@ -858,6 +1071,7 @@ async function handleAuthUser(user: User | null) {
     $('#converterWorkspace').hidden = true;
     headerUser.hidden = true;
     headerUser.textContent = '';
+    headerAdminBtn.hidden = true;
     headerAuthBtn.textContent = 'Sign in';
     drawerUser.hidden = true;
     drawerUser.textContent = '';
@@ -883,6 +1097,7 @@ async function handleAuthUser(user: User | null) {
     $('#authVerifyBox').hidden = false;
     $('#converterWorkspace').hidden = true;
     $('#verifyEmailText').textContent = user.email || 'your email';
+    headerAdminBtn.hidden = true;
     navAccountLink.hidden = true;
     navAdminLink.hidden = true;
     updateWorkspaceBalanceBar();
@@ -895,6 +1110,7 @@ async function handleAuthUser(user: User | null) {
   verifiedAdminSession = adminAuthorized;
   navAccountLink.hidden = false;
   navAdminLink.hidden = !adminAuthorized;
+  headerAdminBtn.hidden = !adminAuthorized;
 
   $('#authGate').hidden = true;
   $('#authVerifyBox').hidden = true;
@@ -1005,12 +1221,18 @@ function mountAdminPanel() {
     <div class="card" id="adminOverviewCard">
       <div class="account-head">
         <div>
-          <h2>Overview</h2>
-          <p class="account-meta">Summary of active user accounts, credit balances, daily usage, and unread messages.</p>
+          <h2>Control Room Overview</h2>
+          <p class="account-meta">Manage API keys, hosting environment variables, limits, user accounts, roles, and visitor inbox from one place.</p>
         </div>
         <div class="btn-group compact-actions">
           <button id="adminRefreshAll" type="button">Refresh All</button>
         </div>
+      </div>
+
+      <div class="admin-badge-row">
+        <span class="admin-status-tag" id="adminKeySourceBadge">Key source: Checking…</span>
+        <span class="admin-status-tag" id="adminMaintBadge">Mode: Checking…</span>
+        <span class="admin-status-tag" id="adminSyncBadge">Sync: Checking…</span>
       </div>
 
       <div class="quota-metrics">
@@ -1034,9 +1256,80 @@ function mountAdminPanel() {
       <p id="adminOverviewMsg" class="hint" role="status" aria-live="polite"></p>
     </div>
 
+    <div class="card" id="adminServerConfigCard">
+      <h2>Server API Key, Limits &amp; Hosting Env Push</h2>
+      <p class="hint">Update and test the shared Gemini API key live, switch features or maintenance mode on or off, or push keys &amp; limits directly to Vercel Environment Variables without leaving the Admin Panel.</p>
+      <p class="hint" id="adminMaskedKeysInfo">Active Admin Key: Loading… · Host Env Key: Loading…</p>
+
+      <label for="adminCfgApiKey">Shared Server Gemini API Key (leave blank to keep current saved key)</label>
+      <div class="input-inline-row">
+        <input id="adminCfgApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… paste new Gemini key to update live">
+        <button id="adminToggleKeyVis" type="button" class="sec">Show</button>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="adminCfgDailyLimit">Default Daily Free Characters per User</label>
+          <input id="adminCfgDailyLimit" type="number" min="0" max="1000000" value="3000">
+        </div>
+        <div>
+          <label for="adminCfgGlobalCap">Global Daily Free Character Cap</label>
+          <input id="adminCfgGlobalCap" type="number" min="0" max="100000000" value="100000">
+        </div>
+      </div>
+
+      <label for="adminCfgNotice">Public Site Announcement / Maintenance Notice</label>
+      <input id="adminCfgNotice" type="text" maxlength="400" placeholder="Optional banner shown at the top of the app">
+
+      <label class="inline-check">
+        <input id="adminCfgMaintenance" type="checkbox">
+        <span>Maintenance mode (pause shared speech &amp; studio API for standard users)</span>
+      </label>
+      <label class="inline-check">
+        <input id="adminCfgPdfStudio" type="checkbox" checked>
+        <span>Enable AI PDF &amp; Book Chapter Studio proxy for users</span>
+      </label>
+      <label class="inline-check">
+        <input id="adminCfgPodcastStudio" type="checkbox" checked>
+        <span>Enable Podcast &amp; Translator Studio proxy for users</span>
+      </label>
+
+      <div class="btn-group">
+        <button id="adminSaveServerBtn" type="button">Save &amp; Activate Key &amp; Settings</button>
+        <button id="adminTestKeyBtn" type="button" class="sec">Test Key Now</button>
+        <button id="adminClearKeyBtn" type="button" class="dng">Clear Admin Key (Revert to Host Env)</button>
+      </div>
+      <p id="adminServerMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
+      <p id="adminServerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+
+      <details class="panel" id="adminVercelDetails">
+        <summary>Push Key &amp; Limits directly to Vercel Environment Variables</summary>
+        <p class="hint">Upserts <code>GEMINI_API_KEY</code>, <code>DAILY_FREE_CHAR_LIMIT</code>, and <code>GLOBAL_DAILY_FREE_CHARS</code> directly in your Vercel project. Leave fields blank if already set in server hosting variables. Tokens are never saved in browser storage or Firestore.</p>
+        <div class="row">
+          <div>
+            <label for="adminVercelProject">Vercel Project ID or Name</label>
+            <input id="adminVercelProject" type="text" autocomplete="off" placeholder="prj_... or voice-studio">
+          </div>
+          <div>
+            <label for="adminVercelTeam">Vercel Team ID (optional)</label>
+            <input id="adminVercelTeam" type="text" autocomplete="off" placeholder="team_... (leave blank for personal account)">
+          </div>
+        </div>
+        <label for="adminVercelToken">Vercel API Access Token</label>
+        <input id="adminVercelToken" type="password" autocomplete="off" spellcheck="false" placeholder="Optional if VERCEL_API_TOKEN is configured on server">
+        <label for="adminVercelHook">Vercel Deploy Hook URL (optional, triggers immediate redeploy)</label>
+        <input id="adminVercelHook" type="url" autocomplete="off" placeholder="https://api.vercel.com/v1/integrations/deploy/...">
+        <div class="btn-group">
+          <button id="adminPushVercelBtn" type="button" class="sec">Push Key &amp; Limits to Vercel Env</button>
+        </div>
+        <p id="adminVercelMsg" class="hint" role="status" aria-live="polite"></p>
+        <p id="adminVercelErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+      </details>
+    </div>
+
     <div class="card" id="adminCard">
-      <h2>Users &amp; Credits</h2>
-      <p class="hint">Search for any user, view all registered accounts, update daily free limits, or add extra credits.</p>
+      <h2>Users, Wallets, Roles &amp; Credits</h2>
+      <p class="hint">Search for any user, view registered accounts and roles, reset today's daily usage, grant credits, or assign Co-Admin access.</p>
       <div class="row">
         <div>
           <label for="adminSearchInput">Find user by Email or Account ID</label>
@@ -1046,7 +1339,7 @@ function mountAdminPanel() {
       <div class="btn-group">
         <button id="adminFindBtn" type="button" class="sec">Search user</button>
         <button id="adminLoadUsers" type="button" class="sec">Show all users</button>
-        <button id="adminLoadProfiles" type="button" class="sec">Show user profiles</button>
+        <button id="adminLoadProfiles" type="button" class="sec">Show profiles &amp; roles</button>
       </div>
       <div class="admin-table-wrap" id="adminTableWrap" hidden>
         <table class="admin-table">
@@ -1072,7 +1365,7 @@ function mountAdminPanel() {
               <th scope="col">Email</th>
               <th scope="col">Account ID</th>
               <th scope="col">Role</th>
-              <th scope="col">Action</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody id="adminProfilesBody"></tbody>
@@ -1116,6 +1409,24 @@ function mountAdminPanel() {
       <div class="btn-group">
         <button id="adminApply" type="button">Save Changes</button>
       </div>
+
+      <details class="panel">
+        <summary>Bulk Credit Grant (All Loaded User Accounts)</summary>
+        <div class="row">
+          <div>
+            <label for="adminBulkCredits">Bonus Credits per Account</label>
+            <input id="adminBulkCredits" type="number" value="5000" step="1000">
+          </div>
+          <div>
+            <label for="adminBulkNote">Campaign Note</label>
+            <input id="adminBulkNote" type="text" maxlength="240" value="Community appreciation bonus credits">
+          </div>
+        </div>
+        <div class="btn-group">
+          <button id="adminBulkGrantBtn" type="button" class="sec">Grant Bonus to All Active Accounts</button>
+        </div>
+      </details>
+
       <p id="adminMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
       <p id="adminErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
     </div>
@@ -1140,6 +1451,7 @@ function mountAdminPanel() {
       </div>
       <div class="btn-group">
         <button id="adminLoadLedger" type="button" class="sec">Load Recent History</button>
+        <button id="adminExportCsvBtn" type="button" class="sec">Export Filtered CSV</button>
       </div>
       <p id="adminLedgerMsg" class="hint" role="status" aria-live="polite"></p>
       <p id="adminLedgerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
@@ -1197,8 +1509,9 @@ function mountAdminPanel() {
     </div>
 
     <div class="card" id="adminHealthCard">
-      <h2>Server Status</h2>
+      <h2>Server &amp; Integration Diagnostics</h2>
       <p class="hint" id="adminSessionIdentity"></p>
+      <p class="hint" id="adminDiagDetails">Service account: Checking… · Edge KV: Checking… · Vercel Env: Checking…</p>
       <p class="hint" id="adminSystemStatus" role="status" aria-live="polite">Press Check Server Status to verify that speech generation is ready.</p>
       <div class="btn-group">
         <button id="adminCheckHealth" type="button" class="sec">Check Server Status</button>
@@ -1206,8 +1519,11 @@ function mountAdminPanel() {
     </div>
   `;
 
+  let cachedWallets: Array<{ docId: string; wallet: UserWalletDoc }> = [];
   let cachedLedger: LedgerEntryDoc[] = [];
+  let cachedFilteredLedger: LedgerEntryDoc[] = [];
   let cachedInbox: ContactMessageDoc[] = [];
+  let cachedServerDoc: ServerConfigDoc | null = null;
   let unreadOnlyFilter = false;
   let pendingDeleteId: string | null = null;
 
@@ -1240,6 +1556,317 @@ function mountAdminPanel() {
     $('#adminMsg').textContent = '';
     $('#adminErr').textContent = msg;
   };
+  const setServerStatus = (msg: string) => {
+    $('#adminServerErr').textContent = '';
+    $('#adminServerMsg').textContent = msg;
+  };
+  const setServerError = (msg: string) => {
+    $('#adminServerMsg').textContent = '';
+    $('#adminServerErr').textContent = msg;
+  };
+  const setVercelStatus = (msg: string) => {
+    $('#adminVercelErr').textContent = '';
+    $('#adminVercelMsg').textContent = msg;
+  };
+  const setVercelError = (msg: string) => {
+    $('#adminVercelMsg').textContent = '';
+    $('#adminVercelErr').textContent = msg;
+  };
+
+  const maskShort = (raw: string): string => {
+    const s = raw.trim();
+    if (!s) return 'Not set';
+    return s.length <= 8 ? '••••' : `${s.slice(0, 6)}••••${s.slice(-4)}`;
+  };
+
+  const applyServerBadges = (data: {
+    keySource?: string;
+    adminKeyMasked?: string;
+    envKeyMasked?: string;
+    dailyFreeCharLimit?: number;
+    globalDailyFreeChars?: number;
+    maintenanceMode?: boolean;
+    siteNotice?: string;
+    allowPdfStudio?: boolean;
+    allowPodcastStudio?: boolean;
+    serviceAccountConfigured?: boolean;
+    kvConfigured?: boolean;
+    vercelEnvConfigured?: boolean;
+  }) => {
+    const srcLabel =
+      data.keySource === 'admin' ? 'Admin Panel Key' : data.keySource === 'env' ? 'Host Env Var' : 'None Configured';
+    $('#adminKeySourceBadge').textContent = `Key source: ${srcLabel}`;
+    $('#adminMaintBadge').textContent = data.maintenanceMode ? 'Mode: Maintenance PAUSED' : 'Mode: Live Active';
+    $('#adminMaskedKeysInfo').textContent =
+      `Active Admin Key: ${data.adminKeyMasked || 'Not set'} · Host Env Key: ${data.envKeyMasked || 'Not set'}`;
+    $('#adminDiagDetails').textContent =
+      `Service account: ${data.serviceAccountConfigured ? 'Ready' : 'Not set'} · Edge KV: ${data.kvConfigured ? 'Connected' : 'Memory only'} · Vercel Env Token: ${data.vercelEnvConfigured ? 'Configured' : 'Manual input'}`;
+    if (typeof data.dailyFreeCharLimit === 'number') {
+      $<HTMLInputElement>('#adminCfgDailyLimit').value = String(data.dailyFreeCharLimit);
+    }
+    if (typeof data.globalDailyFreeChars === 'number') {
+      $<HTMLInputElement>('#adminCfgGlobalCap').value = String(data.globalDailyFreeChars);
+    }
+    if (typeof data.siteNotice === 'string') {
+      $<HTMLInputElement>('#adminCfgNotice').value = data.siteNotice;
+    }
+    if (typeof data.maintenanceMode === 'boolean') {
+      $<HTMLInputElement>('#adminCfgMaintenance').checked = data.maintenanceMode;
+    }
+    if (typeof data.allowPdfStudio === 'boolean') {
+      $<HTMLInputElement>('#adminCfgPdfStudio').checked = data.allowPdfStudio;
+    }
+    if (typeof data.allowPodcastStudio === 'boolean') {
+      $<HTMLInputElement>('#adminCfgPodcastStudio').checked = data.allowPodcastStudio;
+    }
+  };
+
+  const loadServerConfig = async () => {
+    try {
+      cachedServerDoc = await adminGetServerConfig().catch(() => null);
+      if (cachedServerDoc) {
+        $('#adminSyncBadge').textContent = 'Sync: Firestore synced';
+        applyServerBadges({
+          keySource: cachedServerDoc.geminiApiKey ? 'admin' : 'env',
+          adminKeyMasked: maskShort(cachedServerDoc.geminiApiKey || ''),
+          dailyFreeCharLimit: cachedServerDoc.dailyFreeCharLimit,
+          globalDailyFreeChars: cachedServerDoc.globalDailyFreeChars,
+          maintenanceMode: cachedServerDoc.maintenanceMode,
+          siteNotice: cachedServerDoc.siteNotice,
+          allowPdfStudio: cachedServerDoc.allowPdfStudio,
+          allowPodcastStudio: cachedServerDoc.allowPodcastStudio,
+        });
+      }
+      if (!currentUser) return;
+      const token = await currentUser.getIdToken();
+      const res = await fetch('/api/admin-config', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        $('#adminSyncBadge').textContent = cachedServerDoc ? 'Sync: Firestore only (API offline)' : 'Sync: Check server';
+        return;
+      }
+      const data = (await res.json()) as Parameters<typeof applyServerBadges>[0];
+      $('#adminSyncBadge').textContent = data.kvConfigured || data.serviceAccountConfigured ? 'Sync: Server + DB Ready' : 'Sync: Runtime Memory';
+      applyServerBadges(data);
+    } catch (err) {
+      setServerError(formatUiError(err, 'Could not load server runtime config.'));
+    }
+  };
+
+  $('#adminToggleKeyVis').onclick = () => {
+    const inp = $<HTMLInputElement>('#adminCfgApiKey');
+    const btn = $<HTMLButtonElement>('#adminToggleKeyVis');
+    const isHidden = inp.type === 'password';
+    inp.type = isHidden ? 'text' : 'password';
+    btn.textContent = isHidden ? 'Hide' : 'Show';
+  };
+
+  $('#adminTestKeyBtn').onclick = async () => {
+    if (!currentUser) return;
+    const btn = $<HTMLButtonElement>('#adminTestKeyBtn');
+    const candidate = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
+    btn.disabled = true;
+    setServerStatus('Testing Gemini API key against Google servers…');
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await fetch('/api/admin-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'test_key',
+          geminiApiKey: candidate || undefined,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        setServerError(data.error || 'Key verification failed.');
+      } else {
+        setServerStatus(data.message || 'Gemini API key verified successfully.');
+      }
+    } catch (err) {
+      setServerError(formatUiError(err, 'Could not reach server to test API key.'));
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  const commitServerSettings = async (clearKey: boolean) => {
+    if (!currentUser) return;
+    const saveBtn = $<HTMLButtonElement>('#adminSaveServerBtn');
+    const clearBtn = $<HTMLButtonElement>('#adminClearKeyBtn');
+    const typedKey = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
+    const dailyFreeCharLimit = Math.max(
+      0,
+      Math.min(1000000, parseInt($<HTMLInputElement>('#adminCfgDailyLimit').value, 10) || 3000)
+    );
+    const globalDailyFreeChars = Math.max(
+      0,
+      Math.min(100000000, parseInt($<HTMLInputElement>('#adminCfgGlobalCap').value, 10) || 100000)
+    );
+    const maintenanceMode = $<HTMLInputElement>('#adminCfgMaintenance').checked;
+    const allowPdfStudio = $<HTMLInputElement>('#adminCfgPdfStudio').checked;
+    const allowPodcastStudio = $<HTMLInputElement>('#adminCfgPodcastStudio').checked;
+    const siteNotice = $<HTMLInputElement>('#adminCfgNotice').value.trim().slice(0, 400);
+
+    saveBtn.disabled = true;
+    clearBtn.disabled = true;
+    setServerStatus(clearKey ? 'Clearing admin API key and saving settings…' : 'Saving and activating API key & settings…');
+
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await fetch('/api/admin-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'save_config',
+          clearApiKey: clearKey,
+          geminiApiKey: clearKey ? '' : typedKey || '__KEEP__',
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+          maintenanceMode,
+          siteNotice,
+          allowPdfStudio,
+          allowPodcastStudio,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        persistedToKv?: boolean;
+        persistedToFirestore?: boolean;
+      } & Parameters<typeof applyServerBadges>[0];
+
+      if (res.status !== 404 && (!res.ok || !data.ok)) {
+        setServerError(data.error || 'Could not save server configuration.');
+        return;
+      }
+
+      const firestoreKeyToSave = clearKey ? '' : typedKey || cachedServerDoc?.geminiApiKey || '';
+      await adminSaveServerConfig({
+        geminiApiKey: firestoreKeyToSave,
+        dailyFreeCharLimit,
+        globalDailyFreeChars,
+        maintenanceMode,
+        siteNotice,
+        allowPdfStudio,
+        allowPodcastStudio,
+        updatedBy: currentUser.email || 'moutther580@gmail.com',
+      });
+      cachedServerDoc = await adminGetServerConfig().catch(() => cachedServerDoc);
+      $<HTMLInputElement>('#adminCfgApiKey').value = '';
+
+      if (res.ok && data.ok) {
+        applyServerBadges(data);
+        setServerStatus(
+          clearKey
+            ? 'Admin override key cleared and reverted to Host Env key cleanly.'
+            : 'Saved & activated live on server and synced to Firestore.'
+        );
+      } else {
+        applyServerBadges({
+          keySource: firestoreKeyToSave ? 'admin' : 'env',
+          adminKeyMasked: maskShort(firestoreKeyToSave),
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+          maintenanceMode,
+          siteNotice,
+          allowPdfStudio,
+          allowPodcastStudio,
+        });
+        setServerStatus('Saved configuration directly to Firestore.');
+      }
+
+      await loadPublicSiteStatus();
+      await fetchBackendQuota(currentUser);
+      await checkHealth();
+    } catch (err) {
+      setServerError(formatUiError(err, 'Could not save server configuration.'));
+    } finally {
+      saveBtn.disabled = false;
+      clearBtn.disabled = false;
+    }
+  };
+
+  $('#adminSaveServerBtn').onclick = () => {
+    void commitServerSettings(false);
+  };
+  $('#adminClearKeyBtn').onclick = () => {
+    void commitServerSettings(true);
+  };
+
+  $('#adminPushVercelBtn').onclick = async () => {
+    if (!currentUser) return;
+    const btn = $<HTMLButtonElement>('#adminPushVercelBtn');
+    const typedKey = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
+    const dailyFreeCharLimit = Math.max(
+      0,
+      Math.min(1000000, parseInt($<HTMLInputElement>('#adminCfgDailyLimit').value, 10) || 3000)
+    );
+    const globalDailyFreeChars = Math.max(
+      0,
+      Math.min(100000000, parseInt($<HTMLInputElement>('#adminCfgGlobalCap').value, 10) || 100000)
+    );
+    const vercelProject = $<HTMLInputElement>('#adminVercelProject').value.trim();
+    const vercelTeamId = $<HTMLInputElement>('#adminVercelTeam').value.trim();
+    const vercelToken = $<HTMLInputElement>('#adminVercelToken').value.trim();
+    const deployHookUrl = $<HTMLInputElement>('#adminVercelHook').value.trim();
+
+    btn.disabled = true;
+    setVercelStatus('Pushing environment variables to Vercel…');
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await fetch('/api/admin-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'push_vercel_env',
+          geminiApiKey: typedKey || undefined,
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+          vercelProject: vercelProject || undefined,
+          vercelTeamId: vercelTeamId || undefined,
+          vercelToken: vercelToken || undefined,
+          deployHookUrl: deployHookUrl || undefined,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string; maskedKey?: string };
+      if (!res.ok || !data.ok) {
+        setVercelError(data.error || 'Could not push environment variables to Vercel.');
+        return;
+      }
+      $<HTMLInputElement>('#adminVercelToken').value = '';
+      if (typedKey) {
+        await adminSaveServerConfig({
+          geminiApiKey: typedKey,
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+          maintenanceMode: $<HTMLInputElement>('#adminCfgMaintenance').checked,
+          siteNotice: $<HTMLInputElement>('#adminCfgNotice').value.trim(),
+          allowPdfStudio: $<HTMLInputElement>('#adminCfgPdfStudio').checked,
+          allowPodcastStudio: $<HTMLInputElement>('#adminCfgPodcastStudio').checked,
+          updatedBy: currentUser.email || 'moutther580@gmail.com',
+        }).catch(() => {});
+        $<HTMLInputElement>('#adminCfgApiKey').value = '';
+      }
+      setVercelStatus(data.message || 'Environment variables pushed to Vercel.');
+      await loadServerConfig();
+      await loadPublicSiteStatus();
+    } catch (err) {
+      setVercelError(formatUiError(err, 'Could not reach server to push Vercel environment variables.'));
+    } finally {
+      btn.disabled = false;
+    }
+  };
 
   mount.querySelectorAll<HTMLButtonElement>('.admin-preset-credit').forEach((btn) => {
     btn.onclick = () => {
@@ -1250,6 +1877,7 @@ function mountAdminPanel() {
   });
 
   const updateWalletOverview = (wallets: Array<{ docId: string; wallet: UserWalletDoc }>) => {
+    cachedWallets = wallets;
     const today = new Date().toISOString().slice(0, 10);
     const totalCredits = wallets.reduce((acc, item) => acc + (item.wallet.paidCredits || 0), 0);
     const totalDaily = wallets.reduce(
@@ -1273,6 +1901,7 @@ function mountAdminPanel() {
         entry.model.toLowerCase().includes(filterText)
       );
     });
+    cachedFilteredLedger = filtered;
 
     const tbody = $('#adminLedgerBody');
     tbody.innerHTML = '';
@@ -1376,6 +2005,28 @@ function mountAdminPanel() {
         }
       };
 
+      const resetTodayBtn = document.createElement('button');
+      resetTodayBtn.type = 'button';
+      resetTodayBtn.className = 'sec';
+      resetTodayBtn.textContent = 'Reset Today';
+      resetTodayBtn.setAttribute('aria-label', `Reset today's usage to 0 for ${w.email}`);
+      resetTodayBtn.onclick = async () => {
+        setAdminStatus(`Resetting today's usage for ${w.email}…`);
+        try {
+          await adminResetUserDailyUsage(docId, w.email);
+          setAdminStatus(`Reset today's character usage to 0 for ${w.email}.`);
+          const refreshed = await adminListWallets();
+          updateWalletOverview(refreshed);
+          renderWalletRows(refreshed, docId);
+          if (cachedLedger.length) await loadLedger();
+          if (docId === currentUser?.uid || w.email === currentUser?.email) {
+            await fetchBackendQuota(currentUser);
+          }
+        } catch (err) {
+          setAdminError(formatUiError(err, 'Could not reset daily usage.'));
+        }
+      };
+
       const ledgerBtn = document.createElement('button');
       ledgerBtn.type = 'button';
       ledgerBtn.className = 'sec';
@@ -1389,7 +2040,7 @@ function mountAdminPanel() {
         $('#adminLedgerFilter').focus();
       };
 
-      wrap.append(selBtn, quickGrantBtn, ledgerBtn);
+      wrap.append(selBtn, quickGrantBtn, resetTodayBtn, ledgerBtn);
       tdAct.appendChild(wrap);
 
       tr.append(tdEmail, tdId, tdPlan, tdDaily, tdLifetime, tdPaid, tdAct);
@@ -1414,9 +2065,12 @@ function mountAdminPanel() {
       const tdUid = document.createElement('td');
       tdUid.textContent = u.uid;
       const tdRole = document.createElement('td');
-      tdRole.textContent = u.role;
+      tdRole.textContent = u.uid === ADMIN_UID ? 'Primary Admin' : u.role === 'admin' ? 'Co-Admin' : 'User';
 
       const tdAct = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'admin-row-actions';
+
       const selBtn = document.createElement('button');
       selBtn.type = 'button';
       selBtn.className = 'sec';
@@ -1427,20 +2081,49 @@ function mountAdminPanel() {
         setAdminStatus(`Selected user ${u.email}.`);
         $('#adminAddCredits').focus();
       };
-      tdAct.appendChild(selBtn);
+      wrap.appendChild(selBtn);
+
+      if (u.uid !== ADMIN_UID) {
+        const makeAdmin = u.role !== 'admin';
+        const roleBtn = document.createElement('button');
+        roleBtn.type = 'button';
+        roleBtn.className = 'sec';
+        roleBtn.textContent = makeAdmin ? 'Make Co-Admin' : 'Remove Co-Admin';
+        roleBtn.setAttribute('aria-label', `${roleBtn.textContent} for ${u.email}`);
+        roleBtn.onclick = async () => {
+          setAdminStatus(`Updating role for ${u.email}…`);
+          try {
+            await adminUpdateUserRole(u.uid, u.email, makeAdmin);
+            const refreshedProfiles = await adminListUsers();
+            renderProfilesRows(refreshedProfiles);
+            setAdminStatus(`${u.email} role updated to ${makeAdmin ? 'Co-Admin' : 'Standard User'}.`);
+          } catch (err) {
+            setAdminError(formatUiError(err, 'Could not update user role.'));
+          }
+        };
+        wrap.appendChild(roleBtn);
+      }
+
+      tdAct.appendChild(wrap);
       tr.append(tdName, tdEmail, tdUid, tdRole, tdAct);
       tbody.appendChild(tr);
     }
     $('#adminProfilesWrap').hidden = profiles.length === 0;
   };
 
-  $('#adminFindBtn').onclick = async () => {
+  const findBtn = $<HTMLButtonElement>('#adminFindBtn');
+  const loadUsersBtn = $<HTMLButtonElement>('#adminLoadUsers');
+  const loadProfilesBtn = $<HTMLButtonElement>('#adminLoadProfiles');
+  const applyBtn = $<HTMLButtonElement>('#adminApply');
+
+  findBtn.onclick = async () => {
     const queryVal = $<HTMLInputElement>('#adminSearchInput').value.trim();
     if (!queryVal) {
       setAdminError('Enter an email address or account ID to search.');
       $('#adminSearchInput').focus();
       return;
     }
+    findBtn.disabled = true;
     setAdminStatus(`Searching for ${queryVal}…`);
     try {
       const found = await adminFindWallet(queryVal);
@@ -1461,10 +2144,13 @@ function mountAdminPanel() {
       setAdminStatus(`Found account for ${found.wallet.email}.`);
     } catch (err) {
       setAdminError(formatUiError(err, 'Search failed.'));
+    } finally {
+      findBtn.disabled = false;
     }
   };
 
-  $('#adminLoadUsers').onclick = async () => {
+  loadUsersBtn.onclick = async () => {
+    loadUsersBtn.disabled = true;
     setAdminStatus('Loading user accounts…');
     try {
       const wallets = await adminListWallets();
@@ -1473,10 +2159,13 @@ function mountAdminPanel() {
       setAdminStatus(`Loaded ${wallets.length} user account(s).`);
     } catch (err) {
       setAdminError(formatUiError(err, 'Could not load user accounts.'));
+    } finally {
+      loadUsersBtn.disabled = false;
     }
   };
 
-  $('#adminLoadProfiles').onclick = async () => {
+  loadProfilesBtn.onclick = async () => {
+    loadProfilesBtn.disabled = true;
     setAdminStatus('Loading user profiles…');
     try {
       const profiles = await adminListUsers();
@@ -1484,10 +2173,12 @@ function mountAdminPanel() {
       setAdminStatus(`Loaded ${profiles.length} user profile(s).`);
     } catch (err) {
       setAdminError(formatUiError(err, 'Could not load user profiles.'));
+    } finally {
+      loadProfilesBtn.disabled = false;
     }
   };
 
-  $('#adminApply').onclick = async () => {
+  applyBtn.onclick = async () => {
     const target = $<HTMLInputElement>('#adminUid').value.trim();
     const addCredits = parseInt($<HTMLInputElement>('#adminAddCredits').value, 10) || 0;
     const parsedLimit = parseInt($<HTMLInputElement>('#adminDailyLimit').value, 10);
@@ -1500,6 +2191,7 @@ function mountAdminPanel() {
       $('#adminUid').focus();
       return;
     }
+    applyBtn.disabled = true;
     setAdminStatus('Saving changes…');
     try {
       const updated = await adminGrantCredits(target, addCredits, dailyLimit, plan, note);
@@ -1516,11 +2208,71 @@ function mountAdminPanel() {
       }
     } catch (err) {
       setAdminError(formatUiError(err, 'Could not save changes.'));
+    } finally {
+      applyBtn.disabled = false;
+    }
+  };
+
+  $('#adminBulkGrantBtn').onclick = async () => {
+    const bulkBtn = $<HTMLButtonElement>('#adminBulkGrantBtn');
+    const bonus = parseInt($<HTMLInputElement>('#adminBulkCredits').value, 10) || 0;
+    const note = $<HTMLInputElement>('#adminBulkNote').value;
+    if (bonus === 0) {
+      setAdminError('Enter a non-zero bonus character amount.');
+      return;
+    }
+    bulkBtn.disabled = true;
+    setAdminStatus('Granting bonus credits to all active user accounts…');
+    try {
+      const targets = cachedWallets.length ? cachedWallets : await adminListWallets();
+      const count = await adminGrantBulkCredits(targets, bonus, note);
+      const refreshed = await adminListWallets();
+      updateWalletOverview(refreshed);
+      renderWalletRows(refreshed);
+      await loadLedger();
+      if (currentUser) await fetchBackendQuota(currentUser);
+      setAdminStatus(`Granted ${bonus >= 0 ? '+' : ''}${bonus.toLocaleString()} credits across ${count} account(s).`);
+    } catch (err) {
+      setAdminError(formatUiError(err, 'Bulk grant failed.'));
+    } finally {
+      bulkBtn.disabled = false;
     }
   };
 
   $('#adminLoadLedger').onclick = () => {
     void loadLedger();
+  };
+  $('#adminExportCsvBtn').onclick = () => {
+    const rows = cachedFilteredLedger.length ? cachedFilteredLedger : cachedLedger;
+    if (!rows.length) {
+      $('#adminLedgerErr').textContent = 'Load recent activity history before exporting CSV.';
+      return;
+    }
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [
+      ['Time', 'UID', 'Activity', 'CreditsDelta', 'Characters', 'Model', 'Note'].map(esc).join(','),
+      ...rows.map((r) =>
+        [
+          r.createdAt?.toDate?.()?.toISOString() || '',
+          r.uid,
+          formatActivityLabel(r.type),
+          r.creditsDelta,
+          r.chars,
+          r.model,
+          r.note,
+        ]
+          .map(esc)
+          .join(',')
+      ),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `voice-studio-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    $('#adminLedgerMsg').textContent = `Exported ${rows.length} ledger row(s) to CSV.`;
   };
   $('#adminLedgerFilter').addEventListener('input', () => {
     if (cachedLedger.length) renderLedgerTable();
@@ -1690,10 +2442,15 @@ function mountAdminPanel() {
         statusEl.textContent = `Server returned status code ${res.status}.`;
         return;
       }
-      const data = (await res.json()) as { backendConfigured?: boolean; dailyLimit?: number };
+      const data = (await res.json()) as {
+        backendConfigured?: boolean;
+        dailyLimit?: number;
+        keySource?: string;
+        maintenanceMode?: boolean;
+      };
       statusEl.textContent = data.backendConfigured
-        ? `Speech server is active and ready. Default daily free allowance: ${(data.dailyLimit || 3000).toLocaleString()} characters.`
-        : 'Server is online, but the shared speech key is not configured on this host.';
+        ? `Speech server active (Source: ${data.keySource || 'env'}). Daily allowance: ${(data.dailyLimit || 3000).toLocaleString()} chars · ${data.maintenanceMode ? 'Maintenance ON' : 'Live'}.`
+        : 'Server is online, but the shared speech key is not configured yet.';
     } catch {
       statusEl.textContent = 'Could not check server status right now.';
     }
@@ -1763,26 +2520,34 @@ function mountAdminPanel() {
     void checkHealth();
   };
 
-  $('#adminRefreshAll').onclick = async () => {
+  const refreshAllBtn = $<HTMLButtonElement>('#adminRefreshAll');
+  refreshAllBtn.onclick = async () => {
+    refreshAllBtn.disabled = true;
     $('#adminOverviewMsg').textContent = 'Loading admin overview…';
     try {
-      const [wallets, ledger, inbox, referrals] = await Promise.all([
+      const [wallets, profiles, ledger, inbox, referrals] = await Promise.all([
         adminListWallets(),
+        adminListUsers(),
         adminListRecentLedger(),
         adminListContactMessages(),
         adminListReferrals(),
       ]);
       updateWalletOverview(wallets);
       renderWalletRows(wallets);
+      renderProfilesRows(profiles);
       cachedLedger = ledger;
       renderLedgerTable();
       cachedInbox = inbox;
       renderInbox();
       renderReferralsTable(referrals);
+      await loadServerConfig();
       await checkHealth();
-      $('#adminOverviewMsg').textContent = 'All admin sections updated.';
+      $('#adminOverviewMsg').textContent =
+        `All admin sections updated (${wallets.length} wallet(s), ${profiles.length} profile(s)).`;
     } catch (err) {
       $('#adminOverviewMsg').textContent = formatUiError(err, 'Some sections could not be loaded.');
+    } finally {
+      refreshAllBtn.disabled = false;
     }
   };
 }
@@ -2598,12 +3363,24 @@ async function run() {
 
 function requireSignedInUser(): boolean {
   if (!currentUser) {
-    say('Please sign in with Google or Email first.');
+    const msg = 'Please sign in with Google or Email first.';
+    if (resolvePageId() !== 'tool') {
+      navigateToPage('tool', false);
+    }
+    say(msg);
+    sayAuth(msg);
+    $('#authCard').scrollIntoView({ block: 'nearest' });
     $('#authCard').focus();
     return false;
   }
   if (!currentUser.emailVerified) {
-    say('Please verify your email address to unlock your 3,000 characters/day allowance.');
+    const msg = 'Please verify your email address to unlock your 3,000 characters/day allowance.';
+    if (resolvePageId() !== 'tool') {
+      navigateToPage('tool', false);
+    }
+    say(msg);
+    sayAuth(msg);
+    $('#authVerifyBox').scrollIntoView({ block: 'nearest' });
     $('#authVerifyBox').focus();
     return false;
   }
@@ -3069,7 +3846,7 @@ function bindPwaAndShare() {
   $('#shareDrawerBtn').onclick = async () => {
     const shareUrl = window.location.origin;
     const shareText =
-      'Try Voice Studio: free accessible PDF, EPUB & Word DOCX to MP3/WAV speech converter built for screen readers and bilingual notes.';
+      'Try Voice Studio: free PDF, EPUB & Word DOCX to MP3/WAV audiobook and subtitled video converter with Urdu & English neural voices.';
     if (navigator.share) {
       try {
         await navigator.share({ title: 'Voice Studio', text: shareText, url: shareUrl });
@@ -3751,7 +4528,7 @@ $('#pdfAgentRunBtn').onclick = () => void runPdfRecordingAgent(false);
 $('#pdfAgentLoadOnlyBtn').onclick = () => void runPdfRecordingAgent(true);
 
 $('#genPodcastBtn').onclick = async () => {
-  if (!requireSignedInUser()) return;
+  if (!isByokActive() && !requireSignedInUser()) return;
   const topicInput = $<HTMLInputElement>('#podcastTopic').value.trim();
   const editorText = $<HTMLTextAreaElement>('#text').value.trim();
   const topic = topicInput || editorText.slice(0, 5000);
@@ -3788,7 +4565,7 @@ $('#genPodcastBtn').onclick = async () => {
 };
 
 $('#translateBtn').onclick = async () => {
-  if (!requireSignedInUser()) return;
+  if (!isByokActive() && !requireSignedInUser()) return;
   const currentText = $<HTMLTextAreaElement>('#text').value.trim();
   const targetLang = $<HTMLSelectElement>('#translateLang').value;
   if (!currentText) {
@@ -3875,6 +4652,7 @@ function bindReferralUi() {
 }
 
 /* ---- Init ---- */
+bindA11ySettings();
 bindSettings();
 bindContactForm();
 bindPwaAndShare();
@@ -3882,3 +4660,4 @@ bindReferralUi();
 drawDict();
 route(false);
 ui();
+void loadPublicSiteStatus();

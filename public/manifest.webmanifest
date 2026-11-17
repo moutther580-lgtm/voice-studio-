@@ -1,7 +1,7 @@
 {
   "name": "Voice Studio – Clean PDF, EPUB & Urdu/English Docs to MP3 Audio",
   "short_name": "Voice Studio",
-  "description": "Convert academic PDFs, EPUB ebooks, and Word DOCX notes into compact MP3 audiobooks with Urdu & English voices, synced .SRT captions, and screen-reader access.",
+  "description": "Convert academic PDFs, EPUB ebooks, and Word DOCX notes into compact MP3 audiobooks with Urdu & English voices, synced .SRT captions, and subtitled video.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

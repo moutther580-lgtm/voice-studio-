@@ -214,6 +214,62 @@
         }
       },
       "required": ["uid", "referrerUid", "bonusGranted", "createdAt"]
+    },
+    "ServerConfig": {
+      "title": "ServerConfig",
+      "description": "Primary-admin runtime configuration for backend Gemini API key, daily limits, studio switches, and public site notices.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "geminiApiKey": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "dailyFreeCharLimit": {
+          "type": "integer"
+        },
+        "globalDailyFreeChars": {
+          "type": "integer"
+        },
+        "maintenanceMode": {
+          "type": "boolean"
+        },
+        "siteNotice": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "allowPdfStudio": {
+          "type": "boolean"
+        },
+        "allowPodcastStudio": {
+          "type": "boolean"
+        },
+        "updatedBy": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "geminiApiKey",
+        "dailyFreeCharLimit",
+        "globalDailyFreeChars",
+        "maintenanceMode",
+        "siteNotice",
+        "allowPdfStudio",
+        "allowPodcastStudio",
+        "updatedBy",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -240,6 +296,10 @@
     "/referrals/{userId}": {
       "schema": { "$ref": "#/entities/ReferralRecord" },
       "description": "One-time referral attribution linked when an invited user verifies their account."
+    },
+    "/serverConfig/{configId}": {
+      "schema": { "$ref": "#/entities/ServerConfig" },
+      "description": "Restricted runtime control configuration readable and writable only by the primary administrator."
     }
   }
 }

@@ -299,6 +299,14 @@ export async function adminFindWallet(targetInput: string): Promise<{ docId: str
         const d = byEmail.docs[0];
         return { docId: d.id, wallet: d.data() as UserWalletDoc };
       }
+      const lower = clean.toLowerCase();
+      if (lower !== clean) {
+        const byLowerEmail = await getDocs(query(collection(db, 'wallets'), where('email', '==', lower), limit(1)));
+        if (!byLowerEmail.empty) {
+          const d = byLowerEmail.docs[0];
+          return { docId: d.id, wallet: d.data() as UserWalletDoc };
+        }
+      }
     }
     const directSnap = await getDoc(doc(db, 'wallets', clean));
     if (directSnap.exists()) {
@@ -615,3 +623,156 @@ export async function adminApproveReferral(record: ReferralRecordDoc, bonusChars
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
+
+export interface ServerConfigDoc {
+  id: 'runtime';
+  geminiApiKey: string;
+  dailyFreeCharLimit: number;
+  globalDailyFreeChars: number;
+  maintenanceMode: boolean;
+  siteNotice: string;
+  allowPdfStudio: boolean;
+  allowPodcastStudio: boolean;
+  updatedBy: string;
+  updatedAt?: { toDate?: () => Date };
+}
+
+export async function adminGetServerConfig(): Promise<ServerConfigDoc | null> {
+  const path = 'serverConfig/runtime';
+  try {
+    const snap = await getDoc(doc(db, 'serverConfig', 'runtime'));
+    return snap.exists() ? (snap.data() as ServerConfigDoc) : null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+export async function adminSaveServerConfig(input: {
+  geminiApiKey: string;
+  dailyFreeCharLimit: number;
+  globalDailyFreeChars: number;
+  maintenanceMode: boolean;
+  siteNotice: string;
+  allowPdfStudio: boolean;
+  allowPodcastStudio: boolean;
+  updatedBy: string;
+}): Promise<void> {
+  const path = 'serverConfig/runtime';
+  try {
+    await setDoc(doc(db, 'serverConfig', 'runtime'), {
+      id: 'runtime',
+      geminiApiKey: input.geminiApiKey.trim().slice(0, 256),
+      dailyFreeCharLimit: Math.max(0, Math.min(1000000, Math.trunc(input.dailyFreeCharLimit))),
+      globalDailyFreeChars: Math.max(0, Math.min(100000000, Math.trunc(input.globalDailyFreeChars))),
+      maintenanceMode: Boolean(input.maintenanceMode),
+      siteNotice: input.siteNotice.trim().slice(0, 400),
+      allowPdfStudio: Boolean(input.allowPdfStudio),
+      allowPodcastStudio: Boolean(input.allowPodcastStudio),
+      updatedBy: (input.updatedBy || 'admin@voice-studio').trim().slice(0, 254),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function adminResetUserDailyUsage(docId: string, email: string): Promise<void> {
+  const path = `wallets/${docId}`;
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const entryId = `reset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'wallets', docId), {
+      dailyUsedChars: 0,
+      dailyDate: today,
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'ledger', entryId), {
+      id: entryId,
+      uid: docId,
+      type: 'admin_grant',
+      chars: 0,
+      creditsDelta: 0,
+      model: 'admin-portal',
+      note: `Daily quota reset to 0 for ${email}`.slice(0, 240),
+      createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function adminUpdateUserRole(
+  uid: string,
+  email: string,
+  makeAdmin: boolean
+): Promise<void> {
+  if (uid === ADMIN_UID && !makeAdmin) {
+    throw new Error('Cannot remove admin role from the primary administrator account.');
+  }
+  const path = `users/${uid}`;
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      role: makeAdmin ? 'admin' : 'user',
+      updatedAt: serverTimestamp(),
+    });
+    const adminRef = doc(db, 'admins', uid);
+    if (makeAdmin) {
+      const existing = await getDoc(adminRef);
+      if (!existing.exists()) {
+        await setDoc(adminRef, {
+          uid,
+          email: (email || 'admin@voice-studio').trim().slice(0, 254),
+          createdAt: serverTimestamp(),
+        });
+      }
+    } else {
+      await deleteDoc(adminRef);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function adminGrantBulkCredits(
+  wallets: Array<{ docId: string; wallet: UserWalletDoc }>,
+  bonusChars: number,
+  note: string
+): Promise<number> {
+  const cleanBonus = Math.trunc(bonusChars);
+  if (cleanBonus === 0 || !wallets.length) return 0;
+  const cleanNote = (note.trim() || `Bulk grant by admin (${cleanBonus >= 0 ? '+' : ''}${cleanBonus})`).slice(0, 240);
+  let updatedCount = 0;
+
+  try {
+    for (let i = 0; i < wallets.length; i += 100) {
+      const slice = wallets.slice(i, i + 100);
+      const batch = writeBatch(db);
+      for (const { docId, wallet } of slice) {
+        const nextCredits = Math.max(0, (wallet.paidCredits || 0) + cleanBonus);
+        const entryId = `bulk_${Date.now().toString(36)}_${updatedCount}_${Math.random().toString(36).slice(2, 6)}`;
+        batch.update(doc(db, 'wallets', docId), {
+          paidCredits: nextCredits,
+          updatedAt: serverTimestamp(),
+        });
+        batch.set(doc(db, 'ledger', entryId), {
+          id: entryId,
+          uid: docId,
+          type: cleanBonus > 0 ? 'credit_purchase' : 'admin_grant',
+          chars: 0,
+          creditsDelta: cleanBonus,
+          model: 'admin-portal',
+          note: cleanNote,
+          createdAt: serverTimestamp(),
+        });
+        updatedCount += 1;
+      }
+      await batch.commit();
+    }
+    return updatedCount;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'wallets');
+  }
+}
+

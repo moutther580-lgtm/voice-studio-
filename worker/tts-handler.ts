@@ -2,13 +2,19 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import {
   commitFirestoreUsage,
   creditReferralBonus,
+  getFirestoreServerConfig,
   getFirestoreWallet,
+  saveFirestoreServerConfig,
+  type ServerRuntimeConfig,
   type ServiceAccountCreds,
   type WalletSnapshot,
 } from './firestore-admin.js';
 
 const FIREBASE_PROJECT_ID = 'voice-studio-b6bb1';
 const FIRESTORE_DATABASE_ID = 'ai-studio-voicestudio-54f73766-0cc2-4833-94d7-e7ac9b2c2e3f';
+const PRIMARY_ADMIN_UID = 'T2t9j7YD2JaTsichCnZkFlzxr6w1';
+const PRIMARY_ADMIN_EMAIL = 'moutther580@gmail.com';
+const ADMIN_CONFIG_KV_KEY = 'admin:runtime_config';
 
 export interface KVLike {
   get(key: string): Promise<string | null>;
@@ -23,6 +29,10 @@ export interface WorkerEnv {
   DAILY_FREE_CHAR_LIMIT?: string;
   GLOBAL_DAILY_FREE_CHARS?: string;
   FIREBASE_SERVICE_ACCOUNT_JSON?: string;
+  VERCEL_API_TOKEN?: string;
+  VERCEL_PROJECT_ID?: string;
+  VERCEL_TEAM_ID?: string;
+  VERCEL_DEPLOY_HOOK_URL?: string;
   USAGE_KV?: KVLike;
 }
 
@@ -172,11 +182,134 @@ function parseServiceAccount(raw?: string): ServiceAccountCreds | null {
   return null;
 }
 
-async function loadQuotaState(user: VerifiedUser, env: WorkerEnv) {
+async function verifyPrimaryAdminUser(request: Request): Promise<VerifiedUser | Response> {
+  const userOrErr = await verifyFirebaseUser(request);
+  if (userOrErr instanceof Response) return userOrErr;
+  if (
+    userOrErr.uid !== PRIMARY_ADMIN_UID ||
+    userOrErr.email.trim().toLowerCase() !== PRIMARY_ADMIN_EMAIL
+  ) {
+    return json({ error: 'Restricted to primary administrator.' }, 403);
+  }
+  return userOrErr;
+}
+
+function cleanApiKeyCandidate(raw?: string): string {
+  const k = String(raw || '').trim().replace(/^['"]+|['"]+$/g, '').trim();
+  if (!k || k === 'MY_GEMINI_API_KEY' || k.startsWith('YOUR_') || k.length < 20) {
+    return '';
+  }
+  return k;
+}
+
+function resolveEnvGeminiKey(env: WorkerEnv): string {
+  return cleanApiKeyCandidate(
+    env.GEMINI_API_KEY ||
+      env.GOOGLE_GENERATIVE_AI_API_KEY ||
+      env.GOOGLE_API_KEY ||
+      env.GEMINI_KEY ||
+      ''
+  );
+}
+
+function maskSecretKey(raw: string): string {
+  const k = cleanApiKeyCandidate(raw);
+  if (!k) return '';
+  if (k.length <= 10) return '••••';
+  return `${k.slice(0, 6)}••••••${k.slice(-4)}`;
+}
+
+let cachedRuntimeConfig: ServerRuntimeConfig | null = null;
+let cachedRuntimeFetchedAt = 0;
+const RUNTIME_CACHE_TTL_MS = 30_000;
+
+interface EffectiveRuntimeState {
+  runtime: ServerRuntimeConfig;
+  effectiveApiKey: string;
+  envApiKey: string;
+  keySource: 'admin' | 'env' | 'none';
+  serviceAccountConfigured: boolean;
+  kvConfigured: boolean;
+  vercelEnvConfigured: boolean;
+}
+
+async function loadEffectiveRuntime(env: WorkerEnv, forceRefresh = false): Promise<EffectiveRuntimeState> {
+  const envDailyLimit = parseIntEnv(env.DAILY_FREE_CHAR_LIMIT, 3000);
+  const envGlobalCap = parseIntEnv(env.GLOBAL_DAILY_FREE_CHARS, 100000);
+  const envApiKey = resolveEnvGeminiKey(env);
+  const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const kvConfigured = Boolean(env.USAGE_KV);
+  const vercelEnvConfigured = Boolean(env.VERCEL_API_TOKEN && env.VERCEL_PROJECT_ID);
+
+  const defaultRuntime: ServerRuntimeConfig = {
+    id: 'runtime',
+    geminiApiKey: '',
+    dailyFreeCharLimit: envDailyLimit,
+    globalDailyFreeChars: envGlobalCap,
+    maintenanceMode: false,
+    siteNotice: '',
+    allowPdfStudio: true,
+    allowPodcastStudio: true,
+    updatedBy: '',
+  };
+
+  let runtime = cachedRuntimeConfig;
+  const expired = Date.now() - cachedRuntimeFetchedAt > RUNTIME_CACHE_TTL_MS;
+
+  if (!runtime || expired || forceRefresh) {
+    let loaded: ServerRuntimeConfig | null = null;
+    if (env.USAGE_KV) {
+      try {
+        const kvRaw = await env.USAGE_KV.get(ADMIN_CONFIG_KV_KEY);
+        if (kvRaw) loaded = JSON.parse(kvRaw) as ServerRuntimeConfig;
+      } catch {
+        // Ignore KV parse error
+      }
+    }
+    if (!loaded && creds) {
+      try {
+        loaded = await getFirestoreServerConfig(creds, FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID);
+      } catch (err) {
+        console.warn('[voice-studio] Firestore serverConfig fetch skipped:', err);
+      }
+    }
+    if (loaded) {
+      runtime = {
+        ...defaultRuntime,
+        ...loaded,
+        geminiApiKey: cleanApiKeyCandidate(loaded.geminiApiKey),
+      };
+      cachedRuntimeConfig = runtime;
+      cachedRuntimeFetchedAt = Date.now();
+    } else if (!cachedRuntimeConfig) {
+      runtime = defaultRuntime;
+      cachedRuntimeConfig = runtime;
+      cachedRuntimeFetchedAt = Date.now();
+    }
+  }
+
+  const activeRuntime = runtime || defaultRuntime;
+  const adminKey = cleanApiKeyCandidate(activeRuntime.geminiApiKey);
+  const effectiveApiKey = adminKey || envApiKey;
+  const keySource: 'admin' | 'env' | 'none' = adminKey ? 'admin' : envApiKey ? 'env' : 'none';
+
+  return {
+    runtime: activeRuntime,
+    effectiveApiKey,
+    envApiKey,
+    keySource,
+    serviceAccountConfigured: Boolean(creds),
+    kvConfigured,
+    vercelEnvConfigured,
+  };
+}
+
+async function loadQuotaState(user: VerifiedUser, env: WorkerEnv, effectiveState?: EffectiveRuntimeState) {
+  const eff = effectiveState || (await loadEffectiveRuntime(env));
   const kv = env.USAGE_KV || fallbackKV;
   const today = utcDateKey();
-  const defaultDailyLimit = parseIntEnv(env.DAILY_FREE_CHAR_LIMIT, 3000);
-  const globalCap = parseIntEnv(env.GLOBAL_DAILY_FREE_CHARS, 100000);
+  const defaultDailyLimit = eff.runtime.dailyFreeCharLimit;
+  const globalCap = eff.runtime.globalDailyFreeChars;
   const globalUsed = parseIntEnv((await kv.get(`global:${today}`)) || '0', 0);
 
   const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -227,20 +360,6 @@ async function loadQuotaState(user: VerifiedUser, env: WorkerEnv) {
     wallet,
     remainingDaily,
   };
-}
-
-function resolveGeminiKey(env: WorkerEnv): string {
-  const raw =
-    env.GEMINI_API_KEY ||
-    env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    env.GOOGLE_API_KEY ||
-    env.GEMINI_KEY ||
-    '';
-  const k = raw.trim().replace(/^['"]+|['"]+$/g, '').trim();
-  if (!k || k === 'MY_GEMINI_API_KEY' || k.startsWith('YOUR_') || k.length < 20) {
-    return '';
-  }
-  return k;
 }
 
 const TEXT_MODELS = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'] as const;
@@ -461,15 +580,296 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
 
 async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Response> {
   const url = new URL(request.url, 'https://voice-studio.local');
-  const apiKey = resolveGeminiKey(env);
+  const eff = await loadEffectiveRuntime(env);
+  const apiKey = eff.effectiveApiKey;
 
   if (url.pathname === '/api/health') {
     return json({
       ok: true,
       service: 'voice-studio-worker',
       backendConfigured: Boolean(apiKey),
-      dailyLimit: parseIntEnv(env.DAILY_FREE_CHAR_LIMIT, 3000),
+      keySource: eff.keySource,
+      dailyLimit: eff.runtime.dailyFreeCharLimit,
+      globalCap: eff.runtime.globalDailyFreeChars,
+      maintenanceMode: eff.runtime.maintenanceMode,
+      siteNotice: eff.runtime.siteNotice,
+      allowPdfStudio: eff.runtime.allowPdfStudio,
+      allowPodcastStudio: eff.runtime.allowPodcastStudio,
     });
+  }
+
+  if (url.pathname === '/api/admin-config') {
+    const adminOrErr = await verifyPrimaryAdminUser(request);
+    if (adminOrErr instanceof Response) return adminOrErr;
+
+    if (request.method === 'GET') {
+      const fresh = await loadEffectiveRuntime(env, true);
+      return json({
+        ok: true,
+        backendConfigured: Boolean(fresh.effectiveApiKey),
+        keySource: fresh.keySource,
+        adminKeyMasked: maskSecretKey(fresh.runtime.geminiApiKey),
+        envKeyMasked: maskSecretKey(fresh.envApiKey),
+        dailyFreeCharLimit: fresh.runtime.dailyFreeCharLimit,
+        globalDailyFreeChars: fresh.runtime.globalDailyFreeChars,
+        maintenanceMode: fresh.runtime.maintenanceMode,
+        siteNotice: fresh.runtime.siteNotice,
+        allowPdfStudio: fresh.runtime.allowPdfStudio,
+        allowPodcastStudio: fresh.runtime.allowPodcastStudio,
+        serviceAccountConfigured: fresh.serviceAccountConfigured,
+        kvConfigured: fresh.kvConfigured,
+        vercelEnvConfigured: fresh.vercelEnvConfigured,
+        updatedBy: fresh.runtime.updatedBy,
+        updatedAt: fresh.runtime.updatedAt || null,
+      });
+    }
+
+    if (request.method === 'POST') {
+      let body: {
+        action?: string;
+        geminiApiKey?: string;
+        clearApiKey?: boolean;
+        dailyFreeCharLimit?: number;
+        globalDailyFreeChars?: number;
+        maintenanceMode?: boolean;
+        siteNotice?: string;
+        allowPdfStudio?: boolean;
+        allowPodcastStudio?: boolean;
+        vercelToken?: string;
+        vercelProject?: string;
+        vercelTeamId?: string;
+        deployHookUrl?: string;
+      };
+      try {
+        body = (await request.json()) as typeof body;
+      } catch {
+        return json({ error: 'Invalid JSON body.' }, 400);
+      }
+
+      if (body.action === 'test_key') {
+        const current = await loadEffectiveRuntime(env, true);
+        const testKey = cleanApiKeyCandidate(body.geminiApiKey) || current.effectiveApiKey;
+        if (!testKey) {
+          return json({ ok: false, error: 'No Gemini API key entered or active to test.' }, 400);
+        }
+        const started = Date.now();
+        try {
+          const checkRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', {
+            headers: { 'x-goog-api-key': testKey },
+          });
+          const latencyMs = Date.now() - started;
+          const rawCheck = await checkRes.text();
+          if (checkRes.ok) {
+            return json({
+              ok: true,
+              latencyMs,
+              maskedKey: maskSecretKey(testKey),
+              message: `Gemini API key verified (${checkRes.status} OK in ${latencyMs} ms).`,
+            });
+          }
+          let errMsg = `Gemini rejected key (${checkRes.status}).`;
+          try {
+            const parsed = JSON.parse(rawCheck) as { error?: { message?: string } };
+            if (parsed.error?.message) errMsg = parsed.error.message;
+          } catch {
+            // Ignore
+          }
+          return json({ ok: false, status: checkRes.status, error: errMsg }, 400);
+        } catch {
+          return json({ ok: false, error: 'Could not reach Google Gemini API.' }, 502);
+        }
+      }
+
+      if (body.action === 'push_vercel_env') {
+        const current = await loadEffectiveRuntime(env, true);
+        const token = String(body.vercelToken || env.VERCEL_API_TOKEN || '').trim();
+        const project = String(body.vercelProject || env.VERCEL_PROJECT_ID || '').trim();
+        const teamId = String(body.vercelTeamId || env.VERCEL_TEAM_ID || '').trim();
+        const deployHookUrl = String(body.deployHookUrl || env.VERCEL_DEPLOY_HOOK_URL || '').trim();
+        const keyToPush = cleanApiKeyCandidate(body.geminiApiKey) || current.effectiveApiKey;
+
+        if (!token || !project) {
+          return json(
+            {
+              error:
+                'Enter your Vercel Project ID/name and Vercel Access Token (or save them in VERCEL_PROJECT_ID and VERCEL_API_TOKEN env vars).',
+            },
+            400
+          );
+        }
+        if (!keyToPush) {
+          return json({ error: 'Enter a valid Gemini API key above before pushing to Vercel.' }, 400);
+        }
+
+        const teamQuery = teamId ? `&teamId=${encodeURIComponent(teamId)}` : '';
+        const endpoint = `https://api.vercel.com/v10/projects/${encodeURIComponent(project)}/env?upsert=true${teamQuery}`;
+        const varsToPush: Array<{ key: string; value: string; type: 'encrypted' | 'plain' }> = [
+          { key: 'GEMINI_API_KEY', value: keyToPush, type: 'encrypted' },
+          {
+            key: 'DAILY_FREE_CHAR_LIMIT',
+            value: String(
+              Math.max(0, Math.min(1_000_000, Number(body.dailyFreeCharLimit ?? current.runtime.dailyFreeCharLimit) || 3000))
+            ),
+            type: 'plain',
+          },
+          {
+            key: 'GLOBAL_DAILY_FREE_CHARS',
+            value: String(
+              Math.max(
+                0,
+                Math.min(100_000_000, Number(body.globalDailyFreeChars ?? current.runtime.globalDailyFreeChars) || 100000)
+              )
+            ),
+            type: 'plain',
+          },
+        ];
+
+        for (const item of varsToPush) {
+          const vRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              key: item.key,
+              value: item.value,
+              type: item.type,
+              target: ['production', 'preview', 'development'],
+            }),
+          });
+          if (!vRes.ok) {
+            const vRaw = await vRes.text();
+            let vErr = `Vercel API error (${vRes.status}) setting ${item.key}.`;
+            try {
+              const p = JSON.parse(vRaw) as { error?: { message?: string } };
+              if (p.error?.message) vErr = p.error.message;
+            } catch {
+              // Ignore
+            }
+            return json({ error: vErr }, vRes.status >= 400 && vRes.status < 500 ? vRes.status : 502);
+          }
+        }
+
+        let redeployTriggered = false;
+        if (deployHookUrl && /^https:\/\/api\.vercel\.com\/v1\/integrations\/deploy\//i.test(deployHookUrl)) {
+          try {
+            const hookRes = await fetch(deployHookUrl, { method: 'POST' });
+            redeployTriggered = hookRes.ok;
+          } catch {
+            redeployTriggered = false;
+          }
+        }
+
+        // Also update live runtime key immediately in this server process / KV / Firestore
+        const updatedLive: ServerRuntimeConfig = {
+          ...current.runtime,
+          geminiApiKey: keyToPush,
+          dailyFreeCharLimit: Number(varsToPush[1].value),
+          globalDailyFreeChars: Number(varsToPush[2].value),
+          updatedBy: adminOrErr.email,
+          updatedAt: new Date().toISOString(),
+        };
+        cachedRuntimeConfig = updatedLive;
+        cachedRuntimeFetchedAt = Date.now();
+        if (env.USAGE_KV) {
+          await env.USAGE_KV.put(ADMIN_CONFIG_KV_KEY, JSON.stringify(updatedLive)).catch(() => {});
+        }
+        const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        if (creds) {
+          await saveFirestoreServerConfig(creds, FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, updatedLive).catch(
+            () => {}
+          );
+        }
+
+        return json({
+          ok: true,
+          redeployTriggered,
+          maskedKey: maskSecretKey(keyToPush),
+          message: redeployTriggered
+            ? `Pushed GEMINI_API_KEY & limits to Vercel (${project}) and triggered a fresh production deployment.`
+            : `Pushed GEMINI_API_KEY & limits to Vercel (${project}). Live key is active now; redeploy on Vercel (or add a Deploy Hook URL) to apply env vars to cold instances.`,
+        });
+      }
+
+      if (body.action === 'save_config') {
+        const current = await loadEffectiveRuntime(env, true);
+        let nextKey = current.runtime.geminiApiKey;
+        if (body.clearApiKey === true) {
+          nextKey = '';
+        } else if (typeof body.geminiApiKey === 'string' && body.geminiApiKey !== '__KEEP__') {
+          const cleaned = cleanApiKeyCandidate(body.geminiApiKey);
+          if (body.geminiApiKey.trim().length > 0 && !cleaned) {
+            return json({ error: 'API key looks invalid or incomplete (must be a valid Gemini key).' }, 400);
+          }
+          if (cleaned) nextKey = cleaned;
+        }
+
+        const nextConfig: ServerRuntimeConfig = {
+          id: 'runtime',
+          geminiApiKey: nextKey,
+          dailyFreeCharLimit: Math.max(
+            0,
+            Math.min(1_000_000, Number(body.dailyFreeCharLimit ?? current.runtime.dailyFreeCharLimit) || 3000)
+          ),
+          globalDailyFreeChars: Math.max(
+            0,
+            Math.min(100_000_000, Number(body.globalDailyFreeChars ?? current.runtime.globalDailyFreeChars) || 100000)
+          ),
+          maintenanceMode: Boolean(body.maintenanceMode ?? current.runtime.maintenanceMode),
+          siteNotice: String(body.siteNotice ?? current.runtime.siteNotice).trim().slice(0, 400),
+          allowPdfStudio: body.allowPdfStudio !== undefined ? Boolean(body.allowPdfStudio) : current.runtime.allowPdfStudio,
+          allowPodcastStudio:
+            body.allowPodcastStudio !== undefined ? Boolean(body.allowPodcastStudio) : current.runtime.allowPodcastStudio,
+          updatedBy: adminOrErr.email,
+          updatedAt: new Date().toISOString(),
+        };
+
+        cachedRuntimeConfig = nextConfig;
+        cachedRuntimeFetchedAt = Date.now();
+        let persistedToKv = false;
+        let persistedToFirestore = false;
+
+        if (env.USAGE_KV) {
+          try {
+            await env.USAGE_KV.put(ADMIN_CONFIG_KV_KEY, JSON.stringify(nextConfig));
+            persistedToKv = true;
+          } catch {
+            persistedToKv = false;
+          }
+        }
+        const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        if (creds) {
+          try {
+            await saveFirestoreServerConfig(creds, FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, nextConfig);
+            persistedToFirestore = true;
+          } catch {
+            persistedToFirestore = false;
+          }
+        }
+
+        const after = await loadEffectiveRuntime(env, false);
+        return json({
+          ok: true,
+          persistedToKv,
+          persistedToFirestore,
+          backendConfigured: Boolean(after.effectiveApiKey),
+          keySource: after.keySource,
+          adminKeyMasked: maskSecretKey(nextConfig.geminiApiKey),
+          envKeyMasked: maskSecretKey(after.envApiKey),
+          dailyFreeCharLimit: nextConfig.dailyFreeCharLimit,
+          globalDailyFreeChars: nextConfig.globalDailyFreeChars,
+          maintenanceMode: nextConfig.maintenanceMode,
+          siteNotice: nextConfig.siteNotice,
+          allowPdfStudio: nextConfig.allowPdfStudio,
+          allowPodcastStudio: nextConfig.allowPodcastStudio,
+        });
+      }
+
+      return json({ error: 'Unsupported admin config action.' }, 400);
+    }
+
+    return json({ error: 'Method not allowed.' }, 405);
   }
 
   if (url.pathname === '/api/quota' && request.method === 'GET') {
@@ -477,7 +877,7 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
     if (userOrErr instanceof Response) return userOrErr;
 
     try {
-      const state = await loadQuotaState(userOrErr, env);
+      const state = await loadQuotaState(userOrErr, env, eff);
       return json({
         uid: userOrErr.uid,
         email: userOrErr.email,
@@ -498,6 +898,18 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
   if (url.pathname === '/api/tts' && request.method === 'POST') {
     const userOrErr = await verifyFirebaseUser(request);
     if (userOrErr instanceof Response) return userOrErr;
+
+    if (eff.runtime.maintenanceMode && userOrErr.uid !== PRIMARY_ADMIN_UID) {
+      return json(
+        {
+          error:
+            eff.runtime.siteNotice ||
+            'Shared speech generation is temporarily paused for maintenance. Please try again shortly or use your own Gemini API key in Step 1.',
+          code: 'MAINTENANCE_MODE',
+        },
+        503
+      );
+    }
 
     if (!apiKey) {
       return json(
@@ -539,7 +951,7 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
 
     let state: Awaited<ReturnType<typeof loadQuotaState>>;
     try {
-      state = await loadQuotaState(userOrErr, env);
+      state = await loadQuotaState(userOrErr, env, eff);
     } catch {
       return json({ error: 'Could not verify your account quota.' }, 500);
     }
@@ -630,6 +1042,18 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
     const userOrErr = await verifyFirebaseUser(request);
     if (userOrErr instanceof Response) return userOrErr;
 
+    if (eff.runtime.maintenanceMode && userOrErr.uid !== PRIMARY_ADMIN_UID) {
+      return json(
+        {
+          error:
+            eff.runtime.siteNotice ||
+            'Shared AI studio tools are temporarily paused for maintenance. Try again shortly or use your own Gemini API key.',
+          code: 'MAINTENANCE_MODE',
+        },
+        503
+      );
+    }
+
     if (!apiKey) {
       return json(
         {
@@ -660,6 +1084,34 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
       body = (await request.json()) as typeof body;
     } catch {
       return json({ error: 'Invalid JSON body.' }, 400);
+    }
+
+    if (
+      userOrErr.uid !== PRIMARY_ADMIN_UID &&
+      (body.action === 'podcast' || body.action === 'translate') &&
+      !eff.runtime.allowPodcastStudio
+    ) {
+      return json(
+        {
+          error: 'Podcast & Translator studio is temporarily paused by the administrator.',
+          code: 'FEATURE_DISABLED',
+        },
+        403
+      );
+    }
+
+    if (
+      userOrErr.uid !== PRIMARY_ADMIN_UID &&
+      (body.action === 'pdf_plan' || body.action === 'pdf_prepare' || body.action === 'pdf_multimodal') &&
+      !eff.runtime.allowPdfStudio
+    ) {
+      return json(
+        {
+          error: 'AI PDF & Book Chapter studio is temporarily paused by the administrator.',
+          code: 'FEATURE_DISABLED',
+        },
+        403
+      );
     }
 
     if (body.action === 'podcast') {

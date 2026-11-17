@@ -310,3 +310,86 @@ export async function creditReferralBonus(
   }
   return { alreadyExists: false, credited: true, bonusChars };
 }
+
+export interface ServerRuntimeConfig {
+  id: string;
+  geminiApiKey: string;
+  dailyFreeCharLimit: number;
+  globalDailyFreeChars: number;
+  maintenanceMode: boolean;
+  siteNotice: string;
+  allowPdfStudio: boolean;
+  allowPodcastStudio: boolean;
+  updatedBy: string;
+  updatedAt?: string;
+}
+
+export async function getFirestoreServerConfig(
+  creds: ServiceAccountCreds,
+  projectId: string,
+  databaseId: string
+): Promise<ServerRuntimeConfig | null> {
+  const token = await getGoogleAccessToken(creds);
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/serverConfig/runtime`;
+  const res = await fetch(docUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Server config fetch failed (${res.status})`);
+  }
+  const doc = (await res.json()) as { fields?: Record<string, FsValue> };
+  const f = doc.fields;
+  if (!f) return null;
+
+  const updatedAtField = f.updatedAt;
+  const updatedAt = updatedAtField && 'timestampValue' in updatedAtField ? updatedAtField.timestampValue : undefined;
+
+  return {
+    id: readStr(f, 'id', 'runtime'),
+    geminiApiKey: readStr(f, 'geminiApiKey', ''),
+    dailyFreeCharLimit: Math.max(0, readInt(f, 'dailyFreeCharLimit', 3000)),
+    globalDailyFreeChars: Math.max(0, readInt(f, 'globalDailyFreeChars', 100000)),
+    maintenanceMode: readBool(f, 'maintenanceMode', false),
+    siteNotice: readStr(f, 'siteNotice', ''),
+    allowPdfStudio: readBool(f, 'allowPdfStudio', true),
+    allowPodcastStudio: readBool(f, 'allowPodcastStudio', true),
+    updatedBy: readStr(f, 'updatedBy', ''),
+    updatedAt,
+  };
+}
+
+export async function saveFirestoreServerConfig(
+  creds: ServiceAccountCreds,
+  projectId: string,
+  databaseId: string,
+  cfg: ServerRuntimeConfig
+): Promise<void> {
+  const token = await getGoogleAccessToken(creds);
+  const nowIso = new Date().toISOString();
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/serverConfig/runtime`;
+  const res = await fetch(docUrl, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fields: {
+        id: { stringValue: 'runtime' },
+        geminiApiKey: { stringValue: cfg.geminiApiKey.slice(0, 256) },
+        dailyFreeCharLimit: { integerValue: String(Math.max(0, cfg.dailyFreeCharLimit)) },
+        globalDailyFreeChars: { integerValue: String(Math.max(0, cfg.globalDailyFreeChars)) },
+        maintenanceMode: { booleanValue: Boolean(cfg.maintenanceMode) },
+        siteNotice: { stringValue: cfg.siteNotice.slice(0, 400) },
+        allowPdfStudio: { booleanValue: Boolean(cfg.allowPdfStudio) },
+        allowPodcastStudio: { booleanValue: Boolean(cfg.allowPodcastStudio) },
+        updatedBy: { stringValue: cfg.updatedBy.slice(0, 254) },
+        updatedAt: { timestampValue: nowIso },
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Server config save failed (${res.status})`);
+  }
+}
