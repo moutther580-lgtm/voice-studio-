@@ -639,12 +639,132 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
         vercelProject?: string;
         vercelTeamId?: string;
         deployHookUrl?: string;
+        persistVercelConnection?: boolean;
+        pushToVercel?: boolean;
       };
       try {
         body = (await request.json()) as typeof body;
       } catch {
         return json({ error: 'Invalid JSON body.' }, 400);
       }
+
+      const executeVercelPush = async (opts: {
+        token: string;
+        project: string;
+        teamId: string;
+        deployHookUrl: string;
+        persistConnection: boolean;
+        keyToPush: string;
+        dailyFreeCharLimit: number;
+        globalDailyFreeChars: number;
+      }): Promise<{
+        ok: boolean;
+        error?: string;
+        status?: number;
+        redeployTriggered: boolean;
+        connectionSavedToVercel: boolean;
+      }> => {
+        const teamQuery = opts.teamId ? `&teamId=${encodeURIComponent(opts.teamId)}` : '';
+        const endpoint = `https://api.vercel.com/v10/projects/${encodeURIComponent(opts.project)}/env?upsert=true${teamQuery}`;
+        const varsToPush: Array<{ key: string; value: string; type: 'encrypted' | 'plain' }> = [
+          { key: 'GEMINI_API_KEY', value: opts.keyToPush, type: 'encrypted' },
+          { key: 'DAILY_FREE_CHAR_LIMIT', value: String(opts.dailyFreeCharLimit), type: 'plain' },
+          { key: 'GLOBAL_DAILY_FREE_CHARS', value: String(opts.globalDailyFreeChars), type: 'plain' },
+        ];
+
+        let connectionSavedToVercel = false;
+        if (opts.persistConnection && opts.token && opts.project) {
+          varsToPush.push(
+            { key: 'VERCEL_API_TOKEN', value: opts.token, type: 'encrypted' },
+            { key: 'VERCEL_PROJECT_ID', value: opts.project, type: 'plain' }
+          );
+          if (opts.teamId) {
+            varsToPush.push({ key: 'VERCEL_TEAM_ID', value: opts.teamId, type: 'plain' });
+          }
+          if (opts.deployHookUrl) {
+            varsToPush.push({ key: 'VERCEL_DEPLOY_HOOK_URL', value: opts.deployHookUrl, type: 'encrypted' });
+          }
+          connectionSavedToVercel = true;
+        }
+
+        for (const item of varsToPush) {
+          const vRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${opts.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              key: item.key,
+              value: item.value,
+              type: item.type,
+              target: ['production', 'preview', 'development'],
+            }),
+          });
+          if (!vRes.ok) {
+            const vRaw = await vRes.text();
+            let vErr = `Vercel API error (${vRes.status}) setting ${item.key}.`;
+            try {
+              const p = JSON.parse(vRaw) as { error?: { message?: string } };
+              if (p.error?.message) vErr = p.error.message;
+            } catch {
+              // Ignore
+            }
+            return {
+              ok: false,
+              error: vErr,
+              status: vRes.status >= 400 && vRes.status < 500 ? vRes.status : 502,
+              redeployTriggered: false,
+              connectionSavedToVercel: false,
+            };
+          }
+        }
+
+        let redeployTriggered = false;
+        if (opts.deployHookUrl && /^https:\/\/api\.vercel\.com\/v1\/integrations\/deploy\//i.test(opts.deployHookUrl)) {
+          try {
+            const hookRes = await fetch(opts.deployHookUrl, { method: 'POST' });
+            redeployTriggered = hookRes.ok;
+          } catch {
+            redeployTriggered = false;
+          }
+        }
+
+        if (!redeployTriggered) {
+          try {
+            const listUrl = `https://api.vercel.com/v6/deployments?projectId=${encodeURIComponent(opts.project)}&target=production&limit=1${teamQuery}`;
+            const listRes = await fetch(listUrl, {
+              headers: { Authorization: `Bearer ${opts.token}` },
+            });
+            if (listRes.ok) {
+              const listData = (await listRes.json()) as {
+                deployments?: Array<{ uid?: string; name?: string }>;
+              };
+              const latest = listData.deployments?.[0];
+              if (latest?.uid && latest?.name) {
+                const redeployRes = await fetch(`https://api.vercel.com/v13/deployments?forceNew=1${teamQuery}`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${opts.token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    name: latest.name,
+                    project: opts.project,
+                    deploymentId: latest.uid,
+                    target: 'production',
+                  }),
+                });
+                redeployTriggered = redeployRes.ok;
+              }
+            }
+          } catch {
+            redeployTriggered = false;
+          }
+        }
+
+        return { ok: true, redeployTriggered, connectionSavedToVercel };
+      };
 
       if (body.action === 'test_key') {
         const current = await loadEffectiveRuntime(env, true);
@@ -687,12 +807,20 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
         const teamId = String(body.vercelTeamId || env.VERCEL_TEAM_ID || '').trim();
         const deployHookUrl = String(body.deployHookUrl || env.VERCEL_DEPLOY_HOOK_URL || '').trim();
         const keyToPush = cleanApiKeyCandidate(body.geminiApiKey) || current.effectiveApiKey;
+        const dailyFreeCharLimit = Math.max(
+          0,
+          Math.min(1_000_000, Number(body.dailyFreeCharLimit ?? current.runtime.dailyFreeCharLimit) || 3000)
+        );
+        const globalDailyFreeChars = Math.max(
+          0,
+          Math.min(100_000_000, Number(body.globalDailyFreeChars ?? current.runtime.globalDailyFreeChars) || 100000)
+        );
 
         if (!token || !project) {
           return json(
             {
               error:
-                'Enter your Vercel Project ID/name and Vercel Access Token (or save them in VERCEL_PROJECT_ID and VERCEL_API_TOKEN env vars).',
+                'Enter your Vercel Project ID/name and Vercel Access Token once below (after saving once, you never need to enter them again).',
             },
             400
           );
@@ -701,72 +829,27 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
           return json({ error: 'Enter a valid Gemini API key above before pushing to Vercel.' }, 400);
         }
 
-        const teamQuery = teamId ? `&teamId=${encodeURIComponent(teamId)}` : '';
-        const endpoint = `https://api.vercel.com/v10/projects/${encodeURIComponent(project)}/env?upsert=true${teamQuery}`;
-        const varsToPush: Array<{ key: string; value: string; type: 'encrypted' | 'plain' }> = [
-          { key: 'GEMINI_API_KEY', value: keyToPush, type: 'encrypted' },
-          {
-            key: 'DAILY_FREE_CHAR_LIMIT',
-            value: String(
-              Math.max(0, Math.min(1_000_000, Number(body.dailyFreeCharLimit ?? current.runtime.dailyFreeCharLimit) || 3000))
-            ),
-            type: 'plain',
-          },
-          {
-            key: 'GLOBAL_DAILY_FREE_CHARS',
-            value: String(
-              Math.max(
-                0,
-                Math.min(100_000_000, Number(body.globalDailyFreeChars ?? current.runtime.globalDailyFreeChars) || 100000)
-              )
-            ),
-            type: 'plain',
-          },
-        ];
+        const pushed = await executeVercelPush({
+          token,
+          project,
+          teamId,
+          deployHookUrl,
+          persistConnection: body.persistVercelConnection !== false && Boolean(body.vercelToken && body.vercelProject),
+          keyToPush,
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+        });
 
-        for (const item of varsToPush) {
-          const vRes = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              key: item.key,
-              value: item.value,
-              type: item.type,
-              target: ['production', 'preview', 'development'],
-            }),
-          });
-          if (!vRes.ok) {
-            const vRaw = await vRes.text();
-            let vErr = `Vercel API error (${vRes.status}) setting ${item.key}.`;
-            try {
-              const p = JSON.parse(vRaw) as { error?: { message?: string } };
-              if (p.error?.message) vErr = p.error.message;
-            } catch {
-              // Ignore
-            }
-            return json({ error: vErr }, vRes.status >= 400 && vRes.status < 500 ? vRes.status : 502);
-          }
+        if (!pushed.ok) {
+          return json({ error: pushed.error || 'Vercel env push failed.' }, pushed.status || 502);
         }
 
-        let redeployTriggered = false;
-        if (deployHookUrl && /^https:\/\/api\.vercel\.com\/v1\/integrations\/deploy\//i.test(deployHookUrl)) {
-          try {
-            const hookRes = await fetch(deployHookUrl, { method: 'POST' });
-            redeployTriggered = hookRes.ok;
-          } catch {
-            redeployTriggered = false;
-          }
-        }
-
-        // Also update live runtime key immediately in this server process / KV / Firestore
+        // Update live runtime key immediately in this server process / KV / Firestore
         const updatedLive: ServerRuntimeConfig = {
           ...current.runtime,
           geminiApiKey: keyToPush,
-          dailyFreeCharLimit: Number(varsToPush[1].value),
-          globalDailyFreeChars: Number(varsToPush[2].value),
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
           updatedBy: adminOrErr.email,
           updatedAt: new Date().toISOString(),
         };
@@ -784,11 +867,12 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
 
         return json({
           ok: true,
-          redeployTriggered,
+          redeployTriggered: pushed.redeployTriggered,
+          vercelEnvConfigured: Boolean(env.VERCEL_API_TOKEN && env.VERCEL_PROJECT_ID) || pushed.connectionSavedToVercel,
           maskedKey: maskSecretKey(keyToPush),
-          message: redeployTriggered
-            ? `Pushed GEMINI_API_KEY & limits to Vercel (${project}) and triggered a fresh production deployment.`
-            : `Pushed GEMINI_API_KEY & limits to Vercel (${project}). Live key is active now; redeploy on Vercel (or add a Deploy Hook URL) to apply env vars to cold instances.`,
+          message: pushed.redeployTriggered
+            ? `Pushed GEMINI_API_KEY & limits to Vercel (${project}) and started a live production redeploy automatically.`
+            : `Pushed GEMINI_API_KEY & limits to Vercel (${project}). Live key is active now.`,
         });
       }
 
@@ -848,11 +932,46 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
           }
         }
 
+        let vercelPushed = false;
+        let redeployTriggered = false;
+        let vercelError = '';
+        let connectionSavedToVercel = false;
+
+        const vToken = String(body.vercelToken || env.VERCEL_API_TOKEN || '').trim();
+        const vProject = String(body.vercelProject || env.VERCEL_PROJECT_ID || '').trim();
+        const vTeam = String(body.vercelTeamId || env.VERCEL_TEAM_ID || '').trim();
+        const vHook = String(body.deployHookUrl || env.VERCEL_DEPLOY_HOOK_URL || '').trim();
+        const keyToPushToVercel = nextConfig.geminiApiKey || resolveEnvGeminiKey(env);
+
+        if (body.pushToVercel !== false && !body.clearApiKey && vToken && vProject && keyToPushToVercel) {
+          const pushRes = await executeVercelPush({
+            token: vToken,
+            project: vProject,
+            teamId: vTeam,
+            deployHookUrl: vHook,
+            persistConnection: body.persistVercelConnection !== false && Boolean(body.vercelToken && body.vercelProject),
+            keyToPush: keyToPushToVercel,
+            dailyFreeCharLimit: nextConfig.dailyFreeCharLimit,
+            globalDailyFreeChars: nextConfig.globalDailyFreeChars,
+          });
+          if (pushRes.ok) {
+            vercelPushed = true;
+            redeployTriggered = pushRes.redeployTriggered;
+            connectionSavedToVercel = pushRes.connectionSavedToVercel;
+          } else {
+            vercelError = pushRes.error || 'Could not sync env vars to Vercel.';
+          }
+        }
+
         const after = await loadEffectiveRuntime(env, false);
         return json({
           ok: true,
           persistedToKv,
           persistedToFirestore,
+          vercelPushed,
+          redeployTriggered,
+          vercelError,
+          vercelEnvConfigured: after.vercelEnvConfigured || connectionSavedToVercel,
           backendConfigured: Boolean(after.effectiveApiKey),
           keySource: after.keySource,
           adminKeyMasked: maskSecretKey(nextConfig.geminiApiKey),

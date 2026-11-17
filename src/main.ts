@@ -1231,6 +1231,7 @@ function mountAdminPanel() {
 
       <div class="admin-badge-row">
         <span class="admin-status-tag" id="adminKeySourceBadge">Key source: Checking…</span>
+        <span class="admin-status-tag" id="adminVercelBadge">Vercel Auto-Push: Checking…</span>
         <span class="admin-status-tag" id="adminMaintBadge">Mode: Checking…</span>
         <span class="admin-status-tag" id="adminSyncBadge">Sync: Checking…</span>
       </div>
@@ -1257,13 +1258,13 @@ function mountAdminPanel() {
     </div>
 
     <div class="card" id="adminServerConfigCard">
-      <h2>Server API Key, Limits &amp; Hosting Env Push</h2>
-      <p class="hint">Update and test the shared Gemini API key live, switch features or maintenance mode on or off, or push keys &amp; limits directly to Vercel Environment Variables without leaving the Admin Panel.</p>
+      <h2>Server API Key, Limits &amp; Direct Vercel Env Push</h2>
+      <p class="hint">Paste a Gemini API key (free or paid) and press <strong>Save &amp; Push API Key to Server</strong>. It pushes straight to your backend &amp; Vercel environment variables and clears immediately from this input—leaving your personal browser key in Step 1 untouched.</p>
       <p class="hint" id="adminMaskedKeysInfo">Active Admin Key: Loading… · Host Env Key: Loading…</p>
 
-      <label for="adminCfgApiKey">Shared Server Gemini API Key (leave blank to keep current saved key)</label>
+      <label for="adminCfgApiKey">Shared Server Gemini API Key (leave blank to keep current server key)</label>
       <div class="input-inline-row">
-        <input id="adminCfgApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… paste new Gemini key to update live">
+        <input id="adminCfgApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… paste new Gemini key to push straight to server">
         <button id="adminToggleKeyVis" type="button" class="sec">Show</button>
       </div>
 
@@ -1295,7 +1296,7 @@ function mountAdminPanel() {
       </label>
 
       <div class="btn-group">
-        <button id="adminSaveServerBtn" type="button">Save &amp; Activate Key &amp; Settings</button>
+        <button id="adminSaveServerBtn" type="button">Save &amp; Push API Key to Server</button>
         <button id="adminTestKeyBtn" type="button" class="sec">Test Key Now</button>
         <button id="adminClearKeyBtn" type="button" class="dng">Clear Admin Key (Revert to Host Env)</button>
       </div>
@@ -1303,8 +1304,8 @@ function mountAdminPanel() {
       <p id="adminServerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
 
       <details class="panel" id="adminVercelDetails">
-        <summary>Push Key &amp; Limits directly to Vercel Environment Variables</summary>
-        <p class="hint">Upserts <code>GEMINI_API_KEY</code>, <code>DAILY_FREE_CHAR_LIMIT</code>, and <code>GLOBAL_DAILY_FREE_CHARS</code> directly in your Vercel project. Leave fields blank if already set in server hosting variables. Tokens are never saved in browser storage or Firestore.</p>
+        <summary>Vercel Auto-Push Connection (One-Time Setup)</summary>
+        <p class="hint">Connect your Vercel Project ID and Access Token once here. Whenever you press <strong>Save &amp; Push API Key to Server</strong>, Voice Studio automatically updates <code>GEMINI_API_KEY</code> and triggers a live production redeploy with no Vercel dashboard visits required.</p>
         <div class="row">
           <div>
             <label for="adminVercelProject">Vercel Project ID or Name</label>
@@ -1316,11 +1317,15 @@ function mountAdminPanel() {
           </div>
         </div>
         <label for="adminVercelToken">Vercel API Access Token</label>
-        <input id="adminVercelToken" type="password" autocomplete="off" spellcheck="false" placeholder="Optional if VERCEL_API_TOKEN is configured on server">
-        <label for="adminVercelHook">Vercel Deploy Hook URL (optional, triggers immediate redeploy)</label>
+        <input id="adminVercelToken" type="password" autocomplete="off" spellcheck="false" placeholder="Optional once saved on server">
+        <label for="adminVercelHook">Vercel Deploy Hook URL (optional—auto-redeploy works even without this)</label>
         <input id="adminVercelHook" type="url" autocomplete="off" placeholder="https://api.vercel.com/v1/integrations/deploy/...">
+        <label class="inline-check">
+          <input id="adminVercelPersist" type="checkbox" checked>
+          <span>Save Vercel Project ID &amp; Token securely into Vercel Environment Variables on push (so you never enter them again)</span>
+        </label>
         <div class="btn-group">
-          <button id="adminPushVercelBtn" type="button" class="sec">Push Key &amp; Limits to Vercel Env</button>
+          <button id="adminPushVercelBtn" type="button" class="sec">Push Key &amp; Connect Vercel Now</button>
         </div>
         <p id="adminVercelMsg" class="hint" role="status" aria-live="polite"></p>
         <p id="adminVercelErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
@@ -1596,11 +1601,16 @@ function mountAdminPanel() {
     const srcLabel =
       data.keySource === 'admin' ? 'Admin Panel Key' : data.keySource === 'env' ? 'Host Env Var' : 'None Configured';
     $('#adminKeySourceBadge').textContent = `Key source: ${srcLabel}`;
+    if (typeof data.vercelEnvConfigured === 'boolean') {
+      $('#adminVercelBadge').textContent = data.vercelEnvConfigured
+        ? 'Vercel Auto-Push: Connected'
+        : 'Vercel Auto-Push: Setup once below';
+    }
     $('#adminMaintBadge').textContent = data.maintenanceMode ? 'Mode: Maintenance PAUSED' : 'Mode: Live Active';
     $('#adminMaskedKeysInfo').textContent =
       `Active Admin Key: ${data.adminKeyMasked || 'Not set'} · Host Env Key: ${data.envKeyMasked || 'Not set'}`;
     $('#adminDiagDetails').textContent =
-      `Service account: ${data.serviceAccountConfigured ? 'Ready' : 'Not set'} · Edge KV: ${data.kvConfigured ? 'Connected' : 'Memory only'} · Vercel Env Token: ${data.vercelEnvConfigured ? 'Configured' : 'Manual input'}`;
+      `Service account: ${data.serviceAccountConfigured ? 'Ready' : 'Not set'} · Edge KV: ${data.kvConfigured ? 'Connected' : 'Memory only'} · Vercel Auto-Push: ${data.vercelEnvConfigured ? 'Connected' : 'Setup once above'}`;
     if (typeof data.dailyFreeCharLimit === 'number') {
       $<HTMLInputElement>('#adminCfgDailyLimit').value = String(data.dailyFreeCharLimit);
     }
@@ -1711,10 +1721,15 @@ function mountAdminPanel() {
     const allowPdfStudio = $<HTMLInputElement>('#adminCfgPdfStudio').checked;
     const allowPodcastStudio = $<HTMLInputElement>('#adminCfgPodcastStudio').checked;
     const siteNotice = $<HTMLInputElement>('#adminCfgNotice').value.trim().slice(0, 400);
+    const vercelProject = $<HTMLInputElement>('#adminVercelProject').value.trim();
+    const vercelTeamId = $<HTMLInputElement>('#adminVercelTeam').value.trim();
+    const vercelToken = $<HTMLInputElement>('#adminVercelToken').value.trim();
+    const deployHookUrl = $<HTMLInputElement>('#adminVercelHook').value.trim();
+    const persistVercelConnection = $<HTMLInputElement>('#adminVercelPersist').checked;
 
     saveBtn.disabled = true;
     clearBtn.disabled = true;
-    setServerStatus(clearKey ? 'Clearing admin API key and saving settings…' : 'Saving and activating API key & settings…');
+    setServerStatus(clearKey ? 'Clearing admin API key and saving settings…' : 'Pushing API key & settings to server…');
 
     try {
       const token = await currentUser.getIdToken();
@@ -1734,6 +1749,12 @@ function mountAdminPanel() {
           siteNotice,
           allowPdfStudio,
           allowPodcastStudio,
+          pushToVercel: !clearKey,
+          vercelProject: vercelProject || undefined,
+          vercelTeamId: vercelTeamId || undefined,
+          vercelToken: vercelToken || undefined,
+          deployHookUrl: deployHookUrl || undefined,
+          persistVercelConnection,
         }),
       });
       const data = (await res.json()) as {
@@ -1741,12 +1762,21 @@ function mountAdminPanel() {
         error?: string;
         persistedToKv?: boolean;
         persistedToFirestore?: boolean;
+        vercelPushed?: boolean;
+        redeployTriggered?: boolean;
+        vercelError?: string;
       } & Parameters<typeof applyServerBadges>[0];
 
       if (res.status !== 404 && (!res.ok || !data.ok)) {
         setServerError(data.error || 'Could not save server configuration.');
         return;
       }
+
+      // Immediately clear secret inputs from the browser
+      $<HTMLInputElement>('#adminCfgApiKey').value = '';
+      $<HTMLInputElement>('#adminCfgApiKey').type = 'password';
+      $('#adminToggleKeyVis').textContent = 'Show';
+      $<HTMLInputElement>('#adminVercelToken').value = '';
 
       const firestoreKeyToSave = clearKey ? '' : typedKey || cachedServerDoc?.geminiApiKey || '';
       await adminSaveServerConfig({
@@ -1760,15 +1790,23 @@ function mountAdminPanel() {
         updatedBy: currentUser.email || 'moutther580@gmail.com',
       });
       cachedServerDoc = await adminGetServerConfig().catch(() => cachedServerDoc);
-      $<HTMLInputElement>('#adminCfgApiKey').value = '';
 
       if (res.ok && data.ok) {
         applyServerBadges(data);
-        setServerStatus(
-          clearKey
-            ? 'Admin override key cleared and reverted to Host Env key cleanly.'
-            : 'Saved & activated live on server and synced to Firestore.'
-        );
+        if (clearKey) {
+          setServerStatus('Admin override key cleared from server and reverted cleanly to Host Env key.');
+        } else if (data.vercelPushed) {
+          setServerStatus(
+            data.redeployTriggered
+              ? 'Pushed directly to backend & Vercel Env, triggered live production redeploy, and cleared from browser input.'
+              : 'Pushed directly to backend & Vercel Env and cleared from browser input.'
+          );
+        } else if (data.vercelError) {
+          setServerStatus('Saved & activated live on backend and cleared from browser input.');
+          setVercelError(data.vercelError);
+        } else {
+          setServerStatus('Saved & activated on backend, synced to Firestore, and cleared from browser input.');
+        }
       } else {
         applyServerBadges({
           keySource: firestoreKeyToSave ? 'admin' : 'env',
@@ -1780,7 +1818,7 @@ function mountAdminPanel() {
           allowPdfStudio,
           allowPodcastStudio,
         });
-        setServerStatus('Saved configuration directly to Firestore.');
+        setServerStatus('Saved configuration to Firestore and cleared from browser input.');
       }
 
       await loadPublicSiteStatus();
@@ -1817,9 +1855,10 @@ function mountAdminPanel() {
     const vercelTeamId = $<HTMLInputElement>('#adminVercelTeam').value.trim();
     const vercelToken = $<HTMLInputElement>('#adminVercelToken').value.trim();
     const deployHookUrl = $<HTMLInputElement>('#adminVercelHook').value.trim();
+    const persistVercelConnection = $<HTMLInputElement>('#adminVercelPersist').checked;
 
     btn.disabled = true;
-    setVercelStatus('Pushing environment variables to Vercel…');
+    setVercelStatus('Pushing environment variables directly to Vercel…');
     try {
       const token = await currentUser.getIdToken();
       const res = await fetch('/api/admin-config', {
@@ -1837,6 +1876,7 @@ function mountAdminPanel() {
           vercelTeamId: vercelTeamId || undefined,
           vercelToken: vercelToken || undefined,
           deployHookUrl: deployHookUrl || undefined,
+          persistVercelConnection,
         }),
       });
       const data = (await res.json()) as { ok?: boolean; message?: string; error?: string; maskedKey?: string };
@@ -1845,6 +1885,9 @@ function mountAdminPanel() {
         return;
       }
       $<HTMLInputElement>('#adminVercelToken').value = '';
+      $<HTMLInputElement>('#adminCfgApiKey').value = '';
+      $<HTMLInputElement>('#adminCfgApiKey').type = 'password';
+      $('#adminToggleKeyVis').textContent = 'Show';
       if (typedKey) {
         await adminSaveServerConfig({
           geminiApiKey: typedKey,
@@ -1856,9 +1899,8 @@ function mountAdminPanel() {
           allowPodcastStudio: $<HTMLInputElement>('#adminCfgPodcastStudio').checked,
           updatedBy: currentUser.email || 'moutther580@gmail.com',
         }).catch(() => {});
-        $<HTMLInputElement>('#adminCfgApiKey').value = '';
       }
-      setVercelStatus(data.message || 'Environment variables pushed to Vercel.');
+      setVercelStatus(data.message || 'Environment variables pushed directly to Vercel and cleared from browser.');
       await loadServerConfig();
       await loadPublicSiteStatus();
     } catch (err) {
