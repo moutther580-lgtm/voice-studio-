@@ -1,3 +1,9 @@
+import '@fontsource/plus-jakarta-sans/400.css';
+import '@fontsource/plus-jakarta-sans/500.css';
+import '@fontsource/plus-jakarta-sans/600.css';
+import '@fontsource/plus-jakarta-sans/700.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/600.css';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
 import {
@@ -302,9 +308,9 @@ function formatAuthError(err: unknown): string {
 }
 
 /* ---- Routing & Navigation Drawer ---- */
-const SEO_HOME_TITLE = 'Voice Studio – PDF, EPUB & Urdu/English Docs to MP3 Audio & Video';
+const SEO_HOME_TITLE = 'Voice Studio: PDF, EPUB & Urdu Docs to MP3 Audio';
 const SEO_HOME_DESC =
-  'Convert academic PDFs, EPUB ebooks, and Word DOCX notes into clean MP3 audiobooks with Urdu & English neural voices, synced .SRT captions, and burned-in subtitle videos.';
+  'Convert PDFs, EPUB books, and Urdu/English notes into 64 kbps MP3 audiobooks, .SRT captions, and subtitled video locally in your browser.';
 const pages = [
   'tool',
   'pdfStudio',
@@ -438,7 +444,7 @@ function applyA11ySettings() {
   } else if (a11yPrefs.fontFamily === 'serif') {
     root.style.setProperty('--a11y-font', "Georgia, 'Times New Roman', serif");
   } else if (a11yPrefs.fontFamily === 'mono') {
-    root.style.setProperty('--a11y-font', "ui-monospace, 'Cascadia Mono', Consolas, monospace");
+    root.style.setProperty('--a11y-font', "'IBM Plex Mono', ui-monospace, Consolas, monospace");
   } else {
     root.style.removeProperty('--a11y-font');
   }
@@ -1228,11 +1234,14 @@ function mountAdminPanel() {
         </div>
       </div>
 
-      <div class="admin-badge-row">
-        <span class="admin-status-tag" id="adminKeySourceBadge">Key source: Checking…</span>
-        <span class="admin-status-tag" id="adminVercelBadge">Vercel Auto-Push: Checking…</span>
-        <span class="admin-status-tag" id="adminMaintBadge">Mode: Checking…</span>
-        <span class="admin-status-tag" id="adminSyncBadge">Sync: Checking…</span>
+      <div class="admin-meta-strip">
+        <span id="adminKeySourceBadge">Key source: Checking…</span>
+        <span aria-hidden="true">·</span>
+        <span id="adminVercelBadge">Vercel Auto-Push: Checking…</span>
+        <span aria-hidden="true">·</span>
+        <span id="adminMaintBadge">Mode: Checking…</span>
+        <span aria-hidden="true">·</span>
+        <span id="adminSyncBadge">Sync: Checking…</span>
       </div>
 
       <div class="quota-metrics">
@@ -3439,7 +3448,7 @@ function requireSignedInUser(): boolean {
     return false;
   }
   if (!currentUser.emailVerified) {
-    const msg = 'Please verify your email address to unlock your 3,000 characters/day allowance.';
+    const msg = 'Please verify your email address to activate your 3,000 characters/day allowance.';
     if (resolvePageId() !== 'tool') {
       navigateToPage('tool', false);
     }
@@ -4264,7 +4273,7 @@ async function runStudioAction(
         'You write natural two-speaker conversational podcast scripts for text-to-speech playback. Output ONLY lines prefixed with "Host: " or "Guest: ". Never use markdown formatting, asterisks, or stage directions.';
       const prompt =
         payload.length === 'medium'
-          ? `Write an engaging 8 to 10 turn podcast discussion between Host and Guest about:\n\n${payload.topic}`
+          ? `Write a conversational 8 to 10 turn podcast discussion between Host and Guest about:\n\n${payload.topic}`
           : `Write a crisp 5 to 6 turn podcast discussion between Host and Guest about:\n\n${payload.topic}`;
       return callByokStudioText(sys, prompt, key);
     }
@@ -4519,7 +4528,7 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
                   summary:
                     'Create a thorough, high-clarity study summary covering every key definition, formula intuition, and takeaway requested by the user, written strictly for natural spoken listening with zero markdown symbols.',
                   podcast:
-                    'Convert the requested parts of the excerpt into an engaging 2-speaker Host & Guest study discussion. Every line MUST start with "Host: " or "Guest: ". Zero markdown or asterisks.',
+                    'Convert the requested parts of the excerpt into a focused 2-speaker Host & Guest study discussion. Every line MUST start with "Host: " or "Guest: ". Zero markdown or asterisks.',
                 };
                 const sys = `${modeInstructions[outputMode]} Never use markdown formatting (*, #, backticks) or stage directions. Return ONLY the clean spoken script.`;
                 const prepared = await callByokStudioText(
