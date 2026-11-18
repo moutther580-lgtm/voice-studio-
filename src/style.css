@@ -234,6 +234,12 @@ a {
   padding: 0 24px;
 }
 
+@media (max-width: 600px) {
+  .wrap {
+    padding: 0 16px;
+  }
+}
+
 /* ---- Top Bar & Navigation Drawer ---- */
 .site-header {
   border-bottom: 1px solid var(--line);
@@ -562,68 +568,61 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.pipeline-specimen {
+.how-it-works-box {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 18px 20px;
 }
 
-.specimen-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 14px;
-  font-size: 0.84rem;
-  color: var(--mut);
+.how-it-works-box h2 {
+  font-size: 1.05rem;
+  margin: 0 0 12px;
 }
 
-.specimen-head strong {
-  color: var(--fg);
-  font-size: 0.92rem;
-}
-
-.specimen-wave {
-  width: 100%;
-  height: 54px;
-  display: block;
-  margin: 6px 0 12px;
-}
-
-.specimen-wave .wave-pri {
-  fill: var(--pri);
-}
-
-.specimen-tracks {
+.how-steps-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  font-size: 0.86rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 18px;
 }
 
-@media (max-width: 560px) {
-  .specimen-tracks {
+@media (max-width: 680px) {
+  .how-steps-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
-.specimen-track-label {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--mut);
-  margin-bottom: 2px;
+.how-steps-grid li {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
-.specimen-track-val {
+.how-steps-grid strong {
   display: block;
+  font-size: 0.96rem;
+  margin-bottom: 4px;
+}
+
+.how-steps-grid p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--mut);
+  line-height: 1.5;
+}
+
+.urdu-rtl-sample {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 1.04rem;
+  line-height: 1.8;
   color: var(--fg);
-  font-weight: 600;
+  text-align: right;
+  unicode-bidi: isolate;
 }
 
 .trust-note {
@@ -705,6 +704,11 @@ textarea {
   min-height: 240px;
   resize: vertical;
   line-height: 1.65;
+  unicode-bidi: plaintext;
+}
+
+input[dir='auto'] {
+  unicode-bidi: plaintext;
 }
 
 textarea.drag-active {
@@ -1081,7 +1085,6 @@ table.admin-table th {
 .answer-box {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--pri);
   border-radius: var(--radius-sm);
   padding: 16px 18px;
   margin: 16px 0 22px;

@@ -310,9 +310,9 @@ function formatAuthError(err: unknown): string {
 }
 
 /* ---- Routing & Navigation Drawer ---- */
-const SEO_HOME_TITLE = 'Voice Studio: PDF, EPUB & Urdu Docs to MP3 Audio';
+const SEO_HOME_TITLE = 'Voice Studio: Turn PDFs, Books & Urdu Notes into Clean MP3 Audio';
 const SEO_HOME_DESC =
-  'Convert PDFs, EPUB books, and Urdu/English notes into 64 kbps MP3 audiobooks, .SRT captions, and subtitled video locally in your browser.';
+  'Convert PDFs, EPUB books, Word files, and Urdu or English notes into clear MP3 audio, synced subtitles, and study videos—privately in your browser.';
 const pages = [
   'tool',
   'pdfStudio',
@@ -743,6 +743,11 @@ $('#a11yBackdrop').onclick = () => closeA11yDrawer(true);
 $('#openExportModalBtn').onclick = () => openExportModal();
 $('#closeExportBtn').onclick = () => closeExportModal(true);
 $('#exportBackdrop').onclick = () => closeExportModal(true);
+document.getElementById('startConvertingFreeBtn')?.addEventListener('click', () => {
+  const authCard = document.getElementById('authCard');
+  authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('googleSignIn')?.focus();
+});
 
 document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
   link.addEventListener('click', (e) => {
@@ -1115,19 +1120,40 @@ async function handleAuthUser(user: User | null) {
   const navAccountLink = $('#navAccountLink');
   const navAdminLink = $('#navAdminLink');
 
+  const setVerifyPrompt = (email?: string | null) => {
+    const promptEl = document.getElementById('verifyPromptText');
+    if (!promptEl) return;
+    promptEl.textContent = '';
+    if (!email) return;
+    promptEl.appendChild(document.createTextNode('We sent a verification link to '));
+    const emailStrong = document.createElement('strong');
+    emailStrong.textContent = email;
+    promptEl.appendChild(emailStrong);
+    promptEl.appendChild(document.createTextNode('. Open the link in your inbox, then select '));
+    const actionStrong = document.createElement('strong');
+    actionStrong.textContent = 'I verified — refresh status';
+    promptEl.appendChild(actionStrong);
+    promptEl.appendChild(
+      document.createTextNode(' to open the converter workspace and activate your 3,000 characters/day free allowance.')
+    );
+  };
+
   if (!user) {
     $('#authGate').hidden = false;
     $('#authVerifyBox').hidden = true;
     $('#converterWorkspace').hidden = true;
+    setVerifyPrompt(null);
     headerUser.hidden = true;
     headerUser.textContent = '';
     headerAdminBtn.hidden = true;
+    headerAdminBtn.textContent = '';
     headerAuthBtn.textContent = 'Sign in';
     drawerUser.hidden = true;
     drawerUser.textContent = '';
     drawerAuthBtn.textContent = 'Sign in to Converter';
     navAccountLink.hidden = true;
     navAdminLink.hidden = true;
+    navAdminLink.textContent = '';
     updateWorkspaceBalanceBar();
     updateCounts();
     route(false);
@@ -1146,21 +1172,26 @@ async function handleAuthUser(user: User | null) {
     $('#authGate').hidden = true;
     $('#authVerifyBox').hidden = false;
     $('#converterWorkspace').hidden = true;
-    $('#verifyEmailText').textContent = user.email || 'your email';
+    setVerifyPrompt(user.email || 'your email address');
     headerAdminBtn.hidden = true;
+    headerAdminBtn.textContent = '';
     navAccountLink.hidden = true;
     navAdminLink.hidden = true;
+    navAdminLink.textContent = '';
     updateWorkspaceBalanceBar();
     updateCounts();
     route(false);
     return;
   }
 
+  setVerifyPrompt(null);
   const adminAuthorized = await verifyStrictAdmin(user);
   verifiedAdminSession = adminAuthorized;
   navAccountLink.hidden = false;
   navAdminLink.hidden = !adminAuthorized;
+  navAdminLink.textContent = adminAuthorized ? 'Admin Panel' : '';
   headerAdminBtn.hidden = !adminAuthorized;
+  headerAdminBtn.textContent = adminAuthorized ? 'Admin Panel' : '';
 
   $('#authGate').hidden = true;
   $('#authVerifyBox').hidden = true;
@@ -1257,6 +1288,21 @@ onAuthStateChanged(auth, (user) => {
 /* ---- Admin Panel (Strictly Mounted Only for Verified Primary Admin) ---- */
 function unmountAdminPanel() {
   adminDataLoaded = false;
+  const adminSection = document.getElementById('admin');
+  if (adminSection) {
+    adminSection.dataset.title = 'Workspace';
+    adminSection.dataset.description = '';
+  }
+  const headerAdminBtn = document.getElementById('headerAdminBtn');
+  if (headerAdminBtn) {
+    headerAdminBtn.hidden = true;
+    headerAdminBtn.textContent = '';
+  }
+  const navAdminLink = document.getElementById('navAdminLink');
+  if (navAdminLink) {
+    navAdminLink.hidden = true;
+    navAdminLink.textContent = '';
+  }
   const mount = document.getElementById('adminMount');
   if (mount) mount.innerHTML = '';
 }
@@ -1266,8 +1312,15 @@ function mountAdminPanel() {
     unmountAdminPanel();
     return;
   }
+  const adminSection = document.getElementById('admin');
+  if (adminSection) {
+    adminSection.dataset.title = 'Admin Panel';
+    adminSection.dataset.description = 'Administrator workspace';
+  }
   const mount = $('#adminMount');
   mount.innerHTML = `
+    <h1 tabindex="-1">Admin Panel</h1>
+    <p class="lead">Manage user accounts, credits, daily limits, activity history, and visitor messages.</p>
     <div class="card" id="adminOverviewCard">
       <div class="account-head">
         <div>
@@ -1575,7 +1628,14 @@ function mountAdminPanel() {
         <button id="adminCheckHealth" type="button" class="sec">Check Server Status</button>
       </div>
     </div>
+    <div class="btn-group">
+      <button id="adminBackToStudioBtn" type="button" class="sec">Back to Speech Studio</button>
+    </div>
   `;
+
+  document.getElementById('adminBackToStudioBtn')?.addEventListener('click', () => {
+    navigateToPage('tool', true);
+  });
 
   let cachedWallets: Array<{ docId: string; wallet: UserWalletDoc }> = [];
   let cachedLedger: LedgerEntryDoc[] = [];
