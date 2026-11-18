@@ -117,7 +117,8 @@ async function extractPdf(file: File, applyClean: boolean): Promise<DocExtractRe
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   const pagesText: string[] = [];
 
-  for (let p = 1; p <= pdf.numPages; p++) {
+  const maxPages = Math.min(pdf.numPages, 1500);
+  for (let p = 1; p <= maxPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
     const lines: string[] = [];
@@ -195,34 +196,51 @@ function htmlToReadableWithHeading(html: string, fallbackIndex: number): { title
   return { title, text };
 }
 
+const MAX_EPUB_ENTRIES = 250;
+const MAX_EPUB_HTML_CHARS = 2_000_000;
+const MAX_EPUB_TOTAL_CHARS = 15_000_000;
+
+function safeDecodeZipSegment(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
 function resolveZipPath(baseDir: string, relPath: string): string {
   const cleanRel = relPath.split('#')[0].replace(/^\//, '');
-  if (!baseDir) return decodeURIComponent(cleanRel);
+  if (!baseDir) return safeDecodeZipSegment(cleanRel);
   const stack = baseDir.split('/').filter(Boolean);
   for (const part of cleanRel.split('/')) {
     if (!part || part === '.') continue;
     if (part === '..') stack.pop();
     else stack.push(part);
   }
-  return decodeURIComponent(stack.join('/'));
+  return safeDecodeZipSegment(stack.join('/'));
 }
 
 async function extractEpub(file: File, applyClean: boolean): Promise<DocExtractResult> {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const allNames = Object.keys(zip.files);
+  if (allNames.length > 2000) {
+    throw new Error('EPUB archive contains too many entries.');
+  }
   const containerFile = zip.file('META-INF/container.xml');
   let opfPath = '';
 
   if (containerFile) {
-    const containerXml = await containerFile.async('text');
+    const containerXml = (await containerFile.async('text')).slice(0, MAX_EPUB_HTML_CHARS);
     const cDoc = new DOMParser().parseFromString(containerXml, 'application/xml');
     opfPath = cDoc.querySelector('rootfile')?.getAttribute('full-path') || '';
   }
 
   const rawChapters: Array<{ title: string; text: string }> = [];
+  let totalExtractedChars = 0;
 
   if (opfPath && zip.file(opfPath)) {
     const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/')) : '';
-    const opfXml = await zip.file(opfPath)!.async('text');
+    const opfXml = (await zip.file(opfPath)!.async('text')).slice(0, MAX_EPUB_HTML_CHARS);
     const opfDoc = new DOMParser().parseFromString(opfXml, 'application/xml');
 
     const manifest = new Map<string, { href: string; mediaType: string }>();
@@ -233,17 +251,23 @@ async function extractEpub(file: File, applyClean: boolean): Promise<DocExtractR
       if (id && href) manifest.set(id, { href, mediaType });
     });
 
-    const spineRefs = Array.from(opfDoc.querySelectorAll('spine > itemref')).map((r) => r.getAttribute('idref') || '');
+    const spineRefs = Array.from(opfDoc.querySelectorAll('spine > itemref'))
+      .slice(0, MAX_EPUB_ENTRIES)
+      .map((r) => r.getAttribute('idref') || '');
     for (const idref of spineRefs) {
+      if (rawChapters.length >= MAX_EPUB_ENTRIES || totalExtractedChars >= MAX_EPUB_TOTAL_CHARS) break;
       const entry = manifest.get(idref);
       if (!entry) continue;
       if (entry.mediaType && !entry.mediaType.includes('html') && !entry.mediaType.includes('xml')) continue;
       const fullPath = resolveZipPath(opfDir, entry.href);
       const zipEntry = zip.file(fullPath);
       if (!zipEntry) continue;
-      const html = await zipEntry.async('text');
+      const html = (await zipEntry.async('text')).slice(0, MAX_EPUB_HTML_CHARS);
       const readable = htmlToReadableWithHeading(html, rawChapters.length + 1);
-      if (readable.text.length >= 40) rawChapters.push(readable);
+      if (readable.text.length >= 40) {
+        totalExtractedChars += readable.text.length;
+        rawChapters.push(readable);
+      }
     }
   }
 
@@ -251,11 +275,16 @@ async function extractEpub(file: File, applyClean: boolean): Promise<DocExtractR
   if (!rawChapters.length) {
     const htmlNames = Object.keys(zip.files)
       .filter((n) => /\.(x?html?|htm)$/i.test(n) && !/nav\./i.test(n))
-      .sort();
+      .sort()
+      .slice(0, MAX_EPUB_ENTRIES);
     for (const name of htmlNames) {
-      const html = await zip.file(name)!.async('text');
+      if (rawChapters.length >= MAX_EPUB_ENTRIES || totalExtractedChars >= MAX_EPUB_TOTAL_CHARS) break;
+      const html = (await zip.file(name)!.async('text')).slice(0, MAX_EPUB_HTML_CHARS);
       const readable = htmlToReadableWithHeading(html, rawChapters.length + 1);
-      if (readable.text.length >= 40) rawChapters.push(readable);
+      if (readable.text.length >= 40) {
+        totalExtractedChars += readable.text.length;
+        rawChapters.push(readable);
+      }
     }
   }
 

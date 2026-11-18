@@ -637,18 +637,35 @@ export interface ServerConfigDoc {
   updatedAt?: { toDate?: () => Date };
 }
 
-export async function adminGetServerConfig(): Promise<ServerConfigDoc | null> {
+export async function adminGetServerConfig(): Promise<Omit<ServerConfigDoc, 'geminiApiKey'> & { hasGeminiApiKey: boolean; geminiApiKeyMasked: string } | null> {
   const path = 'serverConfig/runtime';
   try {
     const snap = await getDoc(doc(db, 'serverConfig', 'runtime'));
-    return snap.exists() ? (snap.data() as ServerConfigDoc) : null;
+    if (!snap.exists()) return null;
+    const raw = snap.data() as ServerConfigDoc;
+    const k = (raw.geminiApiKey || '').trim();
+    const masked = !k ? 'Not set' : k.length <= 8 ? '••••' : `${k.slice(0, 6)}••••${k.slice(-4)}`;
+    return {
+      id: raw.id,
+      dailyFreeCharLimit: raw.dailyFreeCharLimit,
+      globalDailyFreeChars: raw.globalDailyFreeChars,
+      maintenanceMode: raw.maintenanceMode,
+      siteNotice: raw.siteNotice,
+      allowPdfStudio: raw.allowPdfStudio,
+      allowPodcastStudio: raw.allowPodcastStudio,
+      updatedBy: raw.updatedBy,
+      updatedAt: raw.updatedAt,
+      hasGeminiApiKey: Boolean(k),
+      geminiApiKeyMasked: masked,
+    };
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, path);
   }
 }
 
 export async function adminSaveServerConfig(input: {
-  geminiApiKey: string;
+  geminiApiKey?: string;
+  preserveExistingKey?: boolean;
   dailyFreeCharLimit: number;
   globalDailyFreeChars: number;
   maintenanceMode: boolean;
@@ -658,18 +675,30 @@ export async function adminSaveServerConfig(input: {
   updatedBy: string;
 }): Promise<void> {
   const path = 'serverConfig/runtime';
+  const ref = doc(db, 'serverConfig', 'runtime');
+  const commonFields = {
+    id: 'runtime',
+    dailyFreeCharLimit: Math.max(0, Math.min(1000000, Math.trunc(input.dailyFreeCharLimit))),
+    globalDailyFreeChars: Math.max(0, Math.min(100000000, Math.trunc(input.globalDailyFreeChars))),
+    maintenanceMode: Boolean(input.maintenanceMode),
+    siteNotice: input.siteNotice.trim().slice(0, 400),
+    allowPdfStudio: Boolean(input.allowPdfStudio),
+    allowPodcastStudio: Boolean(input.allowPodcastStudio),
+    updatedBy: (input.updatedBy || 'admin@voice-studio').trim().slice(0, 254),
+    updatedAt: serverTimestamp(),
+  };
   try {
-    await setDoc(doc(db, 'serverConfig', 'runtime'), {
-      id: 'runtime',
-      geminiApiKey: input.geminiApiKey.trim().slice(0, 256),
-      dailyFreeCharLimit: Math.max(0, Math.min(1000000, Math.trunc(input.dailyFreeCharLimit))),
-      globalDailyFreeChars: Math.max(0, Math.min(100000000, Math.trunc(input.globalDailyFreeChars))),
-      maintenanceMode: Boolean(input.maintenanceMode),
-      siteNotice: input.siteNotice.trim().slice(0, 400),
-      allowPdfStudio: Boolean(input.allowPdfStudio),
-      allowPodcastStudio: Boolean(input.allowPodcastStudio),
-      updatedBy: (input.updatedBy || 'admin@voice-studio').trim().slice(0, 254),
-      updatedAt: serverTimestamp(),
+    if (input.preserveExistingKey) {
+      try {
+        await updateDoc(ref, commonFields);
+        return;
+      } catch {
+        // Document may not exist yet; create with empty key
+      }
+    }
+    await setDoc(ref, {
+      ...commonFields,
+      geminiApiKey: (input.geminiApiKey || '').trim().slice(0, 256),
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);

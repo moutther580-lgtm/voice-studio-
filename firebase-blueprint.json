@@ -270,6 +270,46 @@
         "updatedBy",
         "updatedAt"
       ]
+    },
+    "SystemCounter": {
+      "title": "SystemCounter",
+      "description": "Server-only daily global character usage counter.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "usedChars": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["date", "usedChars", "updatedAt"]
+    },
+    "ReferralStats": {
+      "title": "ReferralStats",
+      "description": "Server-only per-referrer lifetime bonus count for anti-abuse enforcement.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "count", "updatedAt"]
     }
   },
   "firestore": {
@@ -300,6 +340,14 @@
     "/serverConfig/{configId}": {
       "schema": { "$ref": "#/entities/ServerConfig" },
       "description": "Restricted runtime control configuration readable and writable only by the primary administrator."
+    },
+    "/systemCounters/{counterId}": {
+      "schema": { "$ref": "#/entities/SystemCounter" },
+      "description": "Server-only daily global quota counter denied to all client SDK access."
+    },
+    "/referralStats/{userId}": {
+      "schema": { "$ref": "#/entities/ReferralStats" },
+      "description": "Server-only referral cap tracker denied to all client SDK access."
     }
   }
 }

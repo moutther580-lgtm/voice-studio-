@@ -33,10 +33,20 @@ function getLocalEnv() {
   };
 }
 
+const MAX_LOCAL_BODY_BYTES = 5 * 1024 * 1024;
+
 async function readReqBody(req) {
   const chunks = [];
+  let total = 0;
   for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    total += buf.byteLength;
+    if (total > MAX_LOCAL_BODY_BYTES) {
+      const err = new Error('Payload too large');
+      err.statusCode = 413;
+      throw err;
+    }
+    chunks.push(buf);
   }
   return chunks.length ? Buffer.concat(chunks) : undefined;
 }
@@ -81,12 +91,18 @@ function localApiDevPlugin() {
         const buf = Buffer.from(await webRes.arrayBuffer());
         res.end(buf);
       } catch (err) {
+        if (err && typeof err === 'object' && 'statusCode' in err && err.statusCode === 413) {
+          res.statusCode = 413;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error: 'Request payload is too large.', code: 'PAYLOAD_TOO_LARGE' }));
+          return;
+        }
         console.error('[local-api]', err);
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(
           JSON.stringify({
-            error: err instanceof Error ? err.message : 'Local API handler error',
+            error: 'Local API handler error',
             code: 'LOCAL_API_ERROR',
           })
         );

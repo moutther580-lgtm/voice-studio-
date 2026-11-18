@@ -138,7 +138,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow get: if isValidId(userId) && isVerified() && (isOwner(userId) || isPrimaryAdmin());
       allow list: if isPrimaryAdmin();
       allow create: if isValidId(userId)
         && isVerified()
@@ -157,13 +157,13 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])) ||
-          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'updatedAt']))
+          (isPrimaryAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'updatedAt']))
         );
       allow delete: if isPrimaryAdmin() && isValidId(userId);
     }
 
     match /wallets/{walletId} {
-      allow get: if isValidWalletId(walletId) && (isWalletOwner(walletId) || isAdmin());
+      allow get: if isValidWalletId(walletId) && isVerified() && (isWalletOwner(walletId) || isPrimaryAdmin());
       allow list: if isPrimaryAdmin();
       allow create: if isValidWalletId(walletId)
         && isValidWallet(incoming(), walletId)
@@ -172,7 +172,8 @@ service cloud.firestore {
           isPrimaryAdmin() ||
           (
             isVerified()
-            && isWalletOwner(walletId)
+            && walletId == request.auth.uid
+            && incoming().uid == request.auth.uid
             && incoming().email == request.auth.token.email
             && incoming().paidCredits == 0
             && incoming().dailyUsedChars == 0
@@ -182,20 +183,22 @@ service cloud.firestore {
           )
         );
       allow update: if isValidWalletId(walletId)
+        && isPrimaryAdmin()
         && isValidWallet(incoming(), walletId)
         && incoming().updatedAt == request.time
-        && (
-          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyLimit', 'plan', 'updatedAt'])) ||
-          (isPrimaryAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyUsedChars', 'dailyDate', 'dailyLimit', 'plan', 'updatedAt']))
-        );
+        && incoming().diff(existing()).affectedKeys().hasOnly(['paidCredits', 'dailyUsedChars', 'dailyDate', 'dailyLimit', 'plan', 'updatedAt']);
       allow delete: if isPrimaryAdmin() && isValidWalletId(walletId);
     }
 
     match /ledger/{entryId} {
-      allow get: if isValidId(entryId) && isSignedIn() && (existing().uid == request.auth.uid || existing().uid == request.auth.token.email || isAdmin());
-      allow list: if isPrimaryAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow get: if isValidId(entryId) && isVerified() && (
+        existing().uid == request.auth.uid ||
+        (request.auth.token.email_verified == true && existing().uid == request.auth.token.email) ||
+        isPrimaryAdmin()
+      );
+      allow list: if isPrimaryAdmin() || (isVerified() && resource.data.uid == request.auth.uid);
       allow create: if isValidId(entryId)
-        && isAdmin()
+        && isPrimaryAdmin()
         && isValidLedgerEntry(incoming(), entryId)
         && incoming().createdAt == request.time
         && existsAfter(/databases/$(database)/documents/wallets/$(incoming().uid));
@@ -206,14 +209,14 @@ service cloud.firestore {
     }
 
     match /admins/{userId} {
-      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || isAdmin());
+      allow get: if isValidId(userId) && isVerified() && (isOwner(userId) || isPrimaryAdmin());
       allow list: if isPrimaryAdmin();
       allow create: if isValidId(userId)
-        && isAdmin()
+        && isPrimaryAdmin()
         && isValidAdminRecord(incoming(), userId)
         && incoming().createdAt == request.time;
       allow update: if false;
-      allow delete: if isAdmin() && isValidId(userId) && userId != request.auth.uid;
+      allow delete: if isPrimaryAdmin() && isValidId(userId) && userId != request.auth.uid;
     }
 
     match /contactMessages/{messageId} {
@@ -237,16 +240,17 @@ service cloud.firestore {
     }
 
     match /referrals/{userId} {
-      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || existing().referrerUid == request.auth.uid || isAdmin());
+      allow get: if isValidId(userId) && isVerified() && (isOwner(userId) || existing().referrerUid == request.auth.uid || isPrimaryAdmin());
       allow list: if isPrimaryAdmin() || (isVerified() && resource.data.referrerUid == request.auth.uid);
       allow create: if isValidId(userId)
         && isVerified()
         && isOwner(userId)
         && isValidReferral(incoming(), userId)
+        && exists(/databases/$(database)/documents/users/$(incoming().referrerUid))
         && incoming().bonusGranted == false
         && incoming().createdAt == request.time;
       allow update: if isValidId(userId)
-        && isAdmin()
+        && isPrimaryAdmin()
         && isValidReferral(incoming(), userId)
         && incoming().uid == existing().uid
         && incoming().referrerUid == existing().referrerUid
@@ -268,6 +272,15 @@ service cloud.firestore {
         && incoming().id == existing().id
         && incoming().updatedAt == request.time;
       allow delete: if isValidId(configId) && isPrimaryAdmin();
+    }
+
+    // Server-only accounting collections managed exclusively via Firebase Admin / Service Account REST
+    match /systemCounters/{counterId} {
+      allow read, write: if false;
+    }
+
+    match /referralStats/{userId} {
+      allow read, write: if false;
     }
   }
 }

@@ -37,25 +37,49 @@ export function getVercelEnv(): WorkerEnv {
   };
 }
 
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Request payload exceeds maximum allowed size.');
+    this.name = 'PayloadTooLargeError';
+  }
+}
+
 async function readNodeRequestBody(req: NodeLikeReq): Promise<BodyInit | undefined> {
   const method = (req.method || 'GET').toUpperCase();
   if (method === 'GET' || method === 'HEAD') return undefined;
 
   if (req.body !== undefined && req.body !== null) {
-    if (typeof req.body === 'string' || req.body instanceof Uint8Array) {
+    if (typeof req.body === 'string') {
+      const encoded = new TextEncoder().encode(req.body);
+      if (encoded.byteLength > MAX_BODY_BYTES) throw new PayloadTooLargeError();
       return req.body as BodyInit;
     }
-    return JSON.stringify(req.body);
+    if (req.body instanceof Uint8Array) {
+      if (req.body.byteLength > MAX_BODY_BYTES) throw new PayloadTooLargeError();
+      return req.body as BodyInit;
+    }
+    const serialized = JSON.stringify(req.body);
+    if (new TextEncoder().encode(serialized).byteLength > MAX_BODY_BYTES) {
+      throw new PayloadTooLargeError();
+    }
+    return serialized;
   }
 
   if (typeof req[Symbol.asyncIterator] === 'function') {
     const chunks: Uint8Array[] = [];
     const encoder = new TextEncoder();
+    let total = 0;
     for await (const chunk of req as AsyncIterable<Uint8Array | string>) {
-      chunks.push(typeof chunk === 'string' ? encoder.encode(chunk) : chunk);
+      const bytes = typeof chunk === 'string' ? encoder.encode(chunk) : chunk;
+      total += bytes.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        throw new PayloadTooLargeError();
+      }
+      chunks.push(bytes);
     }
     if (!chunks.length) return undefined;
-    const total = chunks.reduce((acc, c) => acc + c.byteLength, 0);
     const out = new Uint8Array(total);
     let offset = 0;
     for (const c of chunks) {
@@ -71,9 +95,11 @@ async function readNodeRequestBody(req: NodeLikeReq): Promise<BodyInit | undefin
 export async function handleVercelNode(req: NodeLikeReq, res: NodeLikeRes): Promise<void> {
   try {
     const protoHeader = req.headers['x-forwarded-proto'];
-    const proto = typeof protoHeader === 'string' ? protoHeader.split(',')[0].trim() : 'https';
+    const rawProto = typeof protoHeader === 'string' ? protoHeader.split(',')[0].trim().toLowerCase() : 'https';
+    const proto = rawProto === 'http' || rawProto === 'https' ? rawProto : 'https';
     const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || 'voice-studio.local';
-    const host = typeof hostHeader === 'string' ? hostHeader.split(',')[0].trim() : 'voice-studio.local';
+    const rawHost = typeof hostHeader === 'string' ? hostHeader.split(',')[0].trim() : 'voice-studio.local';
+    const host = /^[a-zA-Z0-9._:-]{1,255}$/.test(rawHost) ? rawHost : 'voice-studio.local';
     const reqUrl = new URL(req.url || '/', `${proto}://${host}`);
 
     const headers = new Headers();
@@ -101,10 +127,17 @@ export async function handleVercelNode(req: NodeLikeReq, res: NodeLikeRes): Prom
     const outBuf = new Uint8Array(await webRes.arrayBuffer());
     res.end(outBuf);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unexpected server error';
+    if (err instanceof PayloadTooLargeError) {
+      res.statusCode = 413;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ error: 'Request payload is too large.', code: 'PAYLOAD_TOO_LARGE' }));
+      return;
+    }
+    console.error('[vercel-api]', err);
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.end(JSON.stringify({ error: `Speech server error: ${message}`, code: 'VERCEL_HANDLER_ERROR' }));
+    res.end(JSON.stringify({ error: 'Speech server error.', code: 'VERCEL_HANDLER_ERROR' }));
   }
 }

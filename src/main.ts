@@ -34,7 +34,6 @@ import {
   type ContactMessageDoc,
   type LedgerEntryDoc,
   type ReferralRecordDoc,
-  type ServerConfigDoc,
   type UserProfileDoc,
   type UserWalletDoc,
 } from './firebase';
@@ -1528,7 +1527,7 @@ function mountAdminPanel() {
   let cachedLedger: LedgerEntryDoc[] = [];
   let cachedFilteredLedger: LedgerEntryDoc[] = [];
   let cachedInbox: ContactMessageDoc[] = [];
-  let cachedServerDoc: ServerConfigDoc | null = null;
+  let cachedServerSummary: Awaited<ReturnType<typeof adminGetServerConfig>> = null;
   let unreadOnlyFilter = false;
   let pendingDeleteId: string | null = null;
 
@@ -1633,32 +1632,35 @@ function mountAdminPanel() {
 
   const loadServerConfig = async () => {
     try {
-      cachedServerDoc = await adminGetServerConfig().catch(() => null);
-      if (cachedServerDoc) {
-        $('#adminSyncBadge').textContent = 'Sync: Firestore synced';
-        applyServerBadges({
-          keySource: cachedServerDoc.geminiApiKey ? 'admin' : 'env',
-          adminKeyMasked: maskShort(cachedServerDoc.geminiApiKey || ''),
-          dailyFreeCharLimit: cachedServerDoc.dailyFreeCharLimit,
-          globalDailyFreeChars: cachedServerDoc.globalDailyFreeChars,
-          maintenanceMode: cachedServerDoc.maintenanceMode,
-          siteNotice: cachedServerDoc.siteNotice,
-          allowPdfStudio: cachedServerDoc.allowPdfStudio,
-          allowPodcastStudio: cachedServerDoc.allowPodcastStudio,
-        });
-      }
       if (!currentUser) return;
       const token = await currentUser.getIdToken();
       const res = await fetch('/api/admin-config', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) {
-        $('#adminSyncBadge').textContent = cachedServerDoc ? 'Sync: Firestore only (API offline)' : 'Sync: Check server';
+      if (res.ok) {
+        const data = (await res.json()) as Parameters<typeof applyServerBadges>[0];
+        $('#adminSyncBadge').textContent =
+          data.kvConfigured || data.serviceAccountConfigured ? 'Sync: Server + DB Ready' : 'Sync: Runtime Memory';
+        applyServerBadges(data);
         return;
       }
-      const data = (await res.json()) as Parameters<typeof applyServerBadges>[0];
-      $('#adminSyncBadge').textContent = data.kvConfigured || data.serviceAccountConfigured ? 'Sync: Server + DB Ready' : 'Sync: Runtime Memory';
-      applyServerBadges(data);
+
+      cachedServerSummary = await adminGetServerConfig().catch(() => null);
+      if (cachedServerSummary) {
+        $('#adminSyncBadge').textContent = 'Sync: Firestore only (API offline)';
+        applyServerBadges({
+          keySource: cachedServerSummary.hasGeminiApiKey ? 'admin' : 'env',
+          adminKeyMasked: cachedServerSummary.geminiApiKeyMasked,
+          dailyFreeCharLimit: cachedServerSummary.dailyFreeCharLimit,
+          globalDailyFreeChars: cachedServerSummary.globalDailyFreeChars,
+          maintenanceMode: cachedServerSummary.maintenanceMode,
+          siteNotice: cachedServerSummary.siteNotice,
+          allowPdfStudio: cachedServerSummary.allowPdfStudio,
+          allowPodcastStudio: cachedServerSummary.allowPodcastStudio,
+        });
+      } else {
+        $('#adminSyncBadge').textContent = 'Sync: Check server';
+      }
     } catch (err) {
       setServerError(formatUiError(err, 'Could not load server runtime config.'));
     }
@@ -1778,18 +1780,20 @@ function mountAdminPanel() {
       $('#adminToggleKeyVis').textContent = 'Show';
       $<HTMLInputElement>('#adminVercelToken').value = '';
 
-      const firestoreKeyToSave = clearKey ? '' : typedKey || cachedServerDoc?.geminiApiKey || '';
-      await adminSaveServerConfig({
-        geminiApiKey: firestoreKeyToSave,
-        dailyFreeCharLimit,
-        globalDailyFreeChars,
-        maintenanceMode,
-        siteNotice,
-        allowPdfStudio,
-        allowPodcastStudio,
-        updatedBy: currentUser.email || 'moutther580@gmail.com',
-      });
-      cachedServerDoc = await adminGetServerConfig().catch(() => cachedServerDoc);
+      if (!(res.ok && data.ok && data.persistedToFirestore)) {
+        await adminSaveServerConfig({
+          geminiApiKey: clearKey ? '' : typedKey,
+          preserveExistingKey: !clearKey && !typedKey,
+          dailyFreeCharLimit,
+          globalDailyFreeChars,
+          maintenanceMode,
+          siteNotice,
+          allowPdfStudio,
+          allowPodcastStudio,
+          updatedBy: currentUser.email || 'moutther580@gmail.com',
+        });
+      }
+      cachedServerSummary = await adminGetServerConfig().catch(() => cachedServerSummary);
 
       if (res.ok && data.ok) {
         applyServerBadges(data);
@@ -1808,9 +1812,14 @@ function mountAdminPanel() {
           setServerStatus('Saved & activated on backend, synced to Firestore, and cleared from browser input.');
         }
       } else {
+        const maskedFallback = clearKey
+          ? 'Not set'
+          : typedKey
+            ? maskShort(typedKey)
+            : cachedServerSummary?.geminiApiKeyMasked || 'Not set';
         applyServerBadges({
-          keySource: firestoreKeyToSave ? 'admin' : 'env',
-          adminKeyMasked: maskShort(firestoreKeyToSave),
+          keySource: clearKey ? 'env' : typedKey || cachedServerSummary?.hasGeminiApiKey ? 'admin' : 'env',
+          adminKeyMasked: maskedFallback,
           dailyFreeCharLimit,
           globalDailyFreeChars,
           maintenanceMode,
@@ -2290,7 +2299,16 @@ function mountAdminPanel() {
       $('#adminLedgerErr').textContent = 'Load recent activity history before exporting CSV.';
       return;
     }
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const esc = (v: unknown) => {
+      const raw = String(v ?? '');
+      const safe =
+        typeof v === 'number' || /^-?\d+(?:\.\d+)?$/.test(raw)
+          ? raw
+          : /^[=+\-@\t\r]/.test(raw)
+            ? `'${raw}`
+            : raw;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
     const lines = [
       ['Time', 'UID', 'Activity', 'CreditsDelta', 'Characters', 'Model', 'Note'].map(esc).join(','),
       ...rows.map((r) =>
@@ -2919,11 +2937,15 @@ $('#addDict').onclick = () => {
   const findEl = $<HTMLInputElement>('#dictFind');
   const repEl = $<HTMLInputElement>('#dictReplace');
   const wholeEl = $<HTMLInputElement>('#dictWhole');
-  const find = findEl.value.trim();
-  const replace = repEl.value.trim();
+  const find = findEl.value.trim().slice(0, 120);
+  const replace = repEl.value.trim().slice(0, 120);
 
   if (!find || !replace) {
     $('#dictMsg').textContent = 'Enter both the written word and how it should be spoken.';
+    return;
+  }
+  if (dictRules.length >= 200) {
+    $('#dictMsg').textContent = 'Maximum 200 pronunciation rules allowed.';
     return;
   }
   dictRules.push({
@@ -2953,6 +2975,7 @@ $('#presetDict').onclick = () => {
   ];
   let added = 0;
   for (const p of presets) {
+    if (dictRules.length >= 200) break;
     if (!dictRules.some((r) => r.find.toLowerCase() === p.find.toLowerCase())) {
       dictRules.push({ ...p, id: String(Date.now()) + added });
       added++;
@@ -3642,6 +3665,12 @@ function renderChaptersBox() {
 }
 
 async function handleSelectedFile(f: File) {
+  const isPdfUpload = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
+  const maxBytes = isPdfUpload ? 30 * 1024 * 1024 : 15 * 1024 * 1024;
+  if (f.size > maxBytes) {
+    say(`File is too large (${Math.round(f.size / (1024 * 1024))} MB). Maximum allowed is ${isPdfUpload ? 30 : 15} MB.`);
+    return;
+  }
   extracting = true;
   loadedFile = f;
   ui();
@@ -4213,9 +4242,12 @@ async function postStudioEndpoint<T extends Record<string, unknown>>(payload: Re
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   });
-  const data = (await res.json()) as T & { error?: string };
+  const data = (await res.json()) as T & { error?: string; quota?: QuotaState };
   if (!res.ok) {
     throw new Error(data.error || `AI studio failed (${res.status}).`);
+  }
+  if (data.quota) {
+    renderQuota(data.quota);
   }
   return data;
 }
