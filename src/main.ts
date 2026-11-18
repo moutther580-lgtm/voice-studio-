@@ -154,12 +154,14 @@ let videoBusy = false;
 let ctl: AbortController | null = null;
 let videoCtl: AbortController | null = null;
 let audioUrl: string | null = null;
-let srtUrl: string | null = null;
-let vttUrl: string | null = null;
 let videoUrl: string | null = null;
 let lastBlob: Blob | null = null;
+let lastSrtBlob: Blob | null = null;
+let lastVttBlob: Blob | null = null;
 let lastSubtitleSegments: SubtitleSegment[] = [];
 let lastName = '';
+let lastSrtName = '';
+let lastVttName = '';
 let loadedDocTitle = '';
 let fullLoadedDocText = '';
 let detectedChapters: ChapterItem[] = [];
@@ -579,6 +581,37 @@ function closeDrawer(restoreFocus = true) {
   if (restoreFocus) openBtn.focus();
 }
 
+function openExportModal() {
+  closeDrawer(false);
+  closeA11yDrawer(false);
+  const modal = document.getElementById('exportModal');
+  const backdrop = document.getElementById('exportBackdrop');
+  const openBtn = document.getElementById('openExportModalBtn');
+  if (!modal || !backdrop || !modal.hidden) return;
+  const exportMsg = document.getElementById('exportPopupMsg');
+  if (exportMsg) exportMsg.textContent = '';
+  backdrop.hidden = false;
+  modal.hidden = false;
+  openBtn?.setAttribute('aria-expanded', 'true');
+  setBackgroundInert(true);
+  const closeBtn = document.getElementById('closeExportBtn');
+  (closeBtn || modal).focus();
+}
+
+function closeExportModal(restoreFocus = true) {
+  const modal = document.getElementById('exportModal');
+  const backdrop = document.getElementById('exportBackdrop');
+  const openBtn = document.getElementById('openExportModalBtn');
+  if (!modal || !backdrop || modal.hidden) return;
+  modal.hidden = true;
+  backdrop.hidden = true;
+  openBtn?.setAttribute('aria-expanded', 'false');
+  setBackgroundInert(false);
+  if (restoreFocus && openBtn && openBtn.offsetParent !== null) {
+    openBtn.focus();
+  }
+}
+
 function focusActivePageHeading(section: HTMLElement) {
   const visibleHeading = Array.from(section.querySelectorAll<HTMLElement>('h1[tabindex="-1"]')).find(
     (h) => h.offsetParent !== null
@@ -629,7 +662,7 @@ function route(moveFocus: boolean) {
     document.getElementById('adminRefreshAll')?.click();
   }
 
-  if ($('#navDrawer').hidden && $('#a11yDrawer').hidden) {
+  if ($('#navDrawer').hidden && $('#a11yDrawer').hidden && $('#exportModal').hidden) {
     setBackgroundInert(false);
   }
 
@@ -654,6 +687,7 @@ function navigateToPage(id: PageId, moveFocus = true) {
   }
   closeDrawer(false);
   closeA11yDrawer(false);
+  closeExportModal(false);
   route(moveFocus);
 }
 
@@ -663,13 +697,21 @@ window.addEventListener('hashchange', () => route(true));
 document.addEventListener('keydown', (e) => {
   const navDrawer = document.getElementById('navDrawer');
   const a11yDrawer = document.getElementById('a11yDrawer');
+  const exportModal = document.getElementById('exportModal');
   const activeDrawer =
-    navDrawer && !navDrawer.hidden ? navDrawer : a11yDrawer && !a11yDrawer.hidden ? a11yDrawer : null;
+    exportModal && !exportModal.hidden
+      ? exportModal
+      : navDrawer && !navDrawer.hidden
+        ? navDrawer
+        : a11yDrawer && !a11yDrawer.hidden
+          ? a11yDrawer
+          : null;
   if (!activeDrawer) return;
 
   if (e.key === 'Escape') {
     e.preventDefault();
-    if (activeDrawer === navDrawer) closeDrawer(true);
+    if (activeDrawer === exportModal) closeExportModal(true);
+    else if (activeDrawer === navDrawer) closeDrawer(true);
     else closeA11yDrawer(true);
     return;
   }
@@ -698,6 +740,9 @@ $('#drawerBackdrop').onclick = () => closeDrawer(true);
 $('#openA11yBtn').onclick = () => openA11yDrawer();
 $('#closeA11yBtn').onclick = () => closeA11yDrawer(true);
 $('#a11yBackdrop').onclick = () => closeA11yDrawer(true);
+$('#openExportModalBtn').onclick = () => openExportModal();
+$('#closeExportBtn').onclick = () => closeExportModal(true);
+$('#exportBackdrop').onclick = () => closeExportModal(true);
 
 document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
   link.addEventListener('click', (e) => {
@@ -3251,21 +3296,18 @@ async function finishOutput(currentJob: GenerationJob) {
   progEl.hidden = true;
 
   if (audioUrl) URL.revokeObjectURL(audioUrl);
-  if (srtUrl) URL.revokeObjectURL(srtUrl);
-  if (vttUrl) URL.revokeObjectURL(vttUrl);
   if (videoUrl) URL.revokeObjectURL(videoUrl);
   videoUrl = null;
 
   audioUrl = URL.createObjectURL(blob);
-  srtUrl = URL.createObjectURL(new Blob([srtContent], { type: 'application/x-subrip;charset=utf-8' }));
-  vttUrl = URL.createObjectURL(new Blob([vttContent], { type: 'text/vtt;charset=utf-8' }));
 
   const player = $<HTMLAudioElement>('#player');
   player.src = audioUrl;
   player.playbackRate = cfg.speed;
 
-  const dl = $<HTMLAnchorElement>('#dl');
   lastBlob = blob;
+  lastSrtBlob = segments.length ? new Blob([srtContent], { type: 'application/x-subrip;charset=utf-8' }) : null;
+  lastVttBlob = segments.length ? new Blob([vttContent], { type: 'text/vtt;charset=utf-8' }) : null;
   lastSubtitleSegments = segments;
   lastName = buildDownloadFilename(
     currentJob.format,
@@ -3276,35 +3318,71 @@ async function finishOutput(currentJob: GenerationJob) {
     cfg.voice,
     cfg.voiceB
   );
-  dl.href = audioUrl;
-  dl.download = lastName;
-  dl.textContent = currentJob.format === 'mp3' ? 'Download MP3 file' : 'Download WAV file';
+
+  const dl = $<HTMLButtonElement>('#dl');
+  dl.disabled = false;
+  dl.textContent = currentJob.format === 'mp3' ? `Download MP3 (${currentJob.mp3Kbps} kbps)` : 'Download WAV (24 kHz)';
 
   const baseStem = lastName.replace(/\.[^.]+$/, '');
-  const dlSrt = $<HTMLAnchorElement>('#dlSrt');
-  dlSrt.href = srtUrl;
-  dlSrt.download = `${baseStem}.srt`;
-  dlSrt.hidden = !segments.length;
+  lastSrtName = `${baseStem}.srt`;
+  lastVttName = `${baseStem}.vtt`;
 
-  const dlVtt = $<HTMLAnchorElement>('#dlVtt');
-  dlVtt.href = vttUrl;
-  dlVtt.download = `${baseStem}.vtt`;
+  const dlSrt = $<HTMLButtonElement>('#dlSrt');
+  dlSrt.hidden = !segments.length;
+  dlSrt.disabled = !segments.length;
+
+  const dlVtt = $<HTMLButtonElement>('#dlVtt');
   dlVtt.hidden = !segments.length;
+  dlVtt.disabled = !segments.length;
 
   const dlVideoBtn = $<HTMLButtonElement>('#dlVideoBtn');
   dlVideoBtn.hidden = !(blob && segments.length > 0);
   $('#videoStatus').textContent = '';
+  $('#exportPopupMsg').textContent = '';
 
   const secs = Math.round(totalPcmDurationSeconds(currentJob.parts, currentJob.rate, currentJob.sil));
   const mb = (blob.size / 1048576).toFixed(2);
-  $('#info').textContent = `File: ${lastName}, ${mb} MB (${currentJob.format.toUpperCase()}) · ${segments.length} synced subtitle cues`;
+  const summaryLine = `${lastName} · ${mb} MB (${currentJob.format.toUpperCase()}) · ${Math.floor(secs / 60)}m ${secs % 60}s · ${segments.length} subtitle cues`;
+  $('#info').textContent = summaryLine;
+  $('#exportMetaSummary').textContent = summaryLine;
   $('#result').hidden = false;
   setupShare();
 
-  say(`Finished. Your audio and synced subtitles are ready, about ${Math.floor(secs / 60)} minutes ${secs % 60} seconds.`);
+  say(`Finished. Audio is ready (${summaryLine}). Open Export Popup to download MP3, subtitles, or video.`);
   ui();
   player.focus();
 }
+
+function triggerSafeBlobDownload(blob: Blob | null, filename: string, missingMsg: string) {
+  const popupMsg = document.getElementById('exportPopupMsg');
+  if (!blob || blob.size === 0 || !filename) {
+    if (popupMsg) popupMsg.textContent = missingMsg;
+    sayError(missingMsg);
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (popupMsg) popupMsg.textContent = `Download started: ${filename}`;
+}
+
+$('#dl').onclick = () => {
+  triggerSafeBlobDownload(lastBlob, lastName || 'audio-narration.mp3', 'Generate audio first before downloading.');
+};
+
+$('#dlSrt').onclick = () => {
+  triggerSafeBlobDownload(lastSrtBlob, lastSrtName || 'subtitles.srt', 'Generate audio first to download .SRT subtitles.');
+};
+
+$('#dlVtt').onclick = () => {
+  triggerSafeBlobDownload(lastVttBlob, lastVttName || 'subtitles.vtt', 'Generate audio first to download .VTT subtitles.');
+};
 
 $('#dlVideoBtn').onclick = async () => {
   if (!lastBlob || !lastSubtitleSegments.length) {
@@ -3343,6 +3421,7 @@ $('#dlVideoBtn').onclick = async () => {
     const a = document.createElement('a');
     a.href = videoUrl;
     a.download = videoFilename;
+    a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3495,6 +3574,14 @@ $('#gen').onclick = () => {
     format: cfg.format,
     mp3Kbps: cfg.mp3Kbps,
   };
+  lastBlob = null;
+  lastSrtBlob = null;
+  lastVttBlob = null;
+  lastSubtitleSegments = [];
+  lastName = '';
+  lastSrtName = '';
+  lastVttName = '';
+  closeExportModal(false);
   $('#result').hidden = true;
   $<HTMLProgressElement>('#prog').value = 0;
   run();
@@ -3582,7 +3669,27 @@ $('#clear').onclick = () => {
   loadedFile = null;
   loadedPagesText = [];
   loadedOutlineItems = [];
+  if (audioUrl) {
+    URL.revokeObjectURL(audioUrl);
+    audioUrl = null;
+  }
+  if (videoUrl) {
+    URL.revokeObjectURL(videoUrl);
+    videoUrl = null;
+  }
+  $<HTMLAudioElement>('#player').removeAttribute('src');
+  lastBlob = null;
+  lastSrtBlob = null;
+  lastVttBlob = null;
   lastSubtitleSegments = [];
+  lastName = '';
+  lastSrtName = '';
+  lastVttName = '';
+  $<HTMLButtonElement>('#dl').disabled = true;
+  $<HTMLButtonElement>('#dlSrt').disabled = true;
+  $<HTMLButtonElement>('#dlVtt').disabled = true;
+  closeExportModal(false);
+  $('#result').hidden = true;
   renderChaptersBox();
   $<HTMLInputElement>('#audioTitle').value = '';
   const pdfInfoEl = document.getElementById('pdfStudioFileInfo');

@@ -301,7 +301,7 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
-        "count": {
+        "creditedCount": {
           "type": "integer"
         },
         "updatedAt": {
@@ -309,7 +309,7 @@
           "format": "date-time"
         }
       },
-      "required": ["uid", "count", "updatedAt"]
+      "required": ["uid", "creditedCount", "updatedAt"]
     }
   },
   "firestore": {

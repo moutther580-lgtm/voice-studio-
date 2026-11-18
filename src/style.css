@@ -363,6 +363,49 @@ a {
   border-left: 1px solid var(--line);
 }
 
+.export-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px 24px;
+  z-index: 105;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.export-meta-summary {
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.export-group {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.export-group h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.export-modal .btn-group {
+  margin-top: 10px;
+}
+
 .a11y-panel-form {
   display: flex;
   flex-direction: column;

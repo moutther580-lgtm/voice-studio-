@@ -1599,7 +1599,7 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
         const sys =
           'You write natural two-speaker conversational podcast scripts for text-to-speech playback. Output ONLY lines prefixed with "Host: " or "Guest: ". Never use markdown formatting, asterisks, stage directions, sound effects, or explanations. Write in the same language as the user topic (English, Urdu, or natural bilingual phrasing). Keep every sentence crisp and clear for speech.';
         const prompt = isMedium
-          ? `Write an engaging 8 to 10 turn podcast discussion between Host and Guest about:\n\n${topic}`
+          ? `Write a conversational 8 to 10 turn podcast discussion between Host and Guest about:\n\n${topic}`
           : `Write a crisp 5 to 6 turn podcast discussion between Host and Guest about:\n\n${topic}`;
 
         const out = await generateStudioText(apiKey, sys, prompt);
@@ -1742,7 +1742,7 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
           summary:
             'Create a thorough, high-clarity study summary covering every key definition, formula intuition, and takeaway requested by the user, written strictly for natural spoken listening with zero markdown symbols.',
           podcast:
-            'Convert the requested parts of the excerpt into an engaging 2-speaker Host & Guest study discussion. Every line MUST start with "Host: " or "Guest: ". Zero markdown or asterisks.',
+            'Convert the requested parts of the excerpt into a focused 2-speaker Host & Guest study discussion. Every line MUST start with "Host: " or "Guest: ". Zero markdown or asterisks.',
         };
         const sys = `${modeInstructions[outputMode] || modeInstructions.narrated} Never use markdown formatting (*, #, backticks) or stage directions. Return ONLY the clean spoken script.`;
         const prompt = `User instruction: ${userPrompt}\n\nDocument Excerpt:\n${rawExcerpt}`;
