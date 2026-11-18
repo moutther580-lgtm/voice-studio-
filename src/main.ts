@@ -1,48 +1,27 @@
-import '@fontsource/plus-jakarta-sans/400.css';
-import '@fontsource/plus-jakarta-sans/500.css';
-import '@fontsource/plus-jakarta-sans/600.css';
-import '@fontsource/plus-jakarta-sans/700.css';
+import '@fontsource/fraunces/600.css';
+import '@fontsource/fraunces/700.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/noto-nastaliq-urdu/400.css';
+import '@fontsource/noto-nastaliq-urdu/700.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/600.css';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
 import {
-  ADMIN_UID,
-  adminApproveReferral,
-  adminDeleteContactMessage,
-  adminFindWallet,
-  adminGetServerConfig,
-  adminGrantBulkCredits,
-  adminGrantCredits,
-  adminListContactMessages,
-  adminListRecentLedger,
-  adminListReferrals,
-  adminListUsers,
-  adminListWallets,
-  adminResetUserDailyUsage,
-  adminSaveServerConfig,
-  adminSetContactMessageStatus,
-  adminUpdateUserRole,
-  auth,
-  ensureUserAndWallet,
-  recordPendingReferralClient,
-  resendVerificationEmail,
-  sendResetEmail,
-  signInEmail,
-  signInWithGoogle,
-  signOutUser,
-  signUpEmail,
-  submitContactMessage,
-  subscribeLedger,
-  subscribeMyReferrals,
-  subscribeWallet,
-  verifyStrictAdmin,
-  type ContactMessageDoc,
-  type LedgerEntryDoc,
-  type ReferralRecordDoc,
-  type UserProfileDoc,
-  type UserWalletDoc,
-} from './firebase';
+  ROUTES,
+  ROUTE_BY_PAGE_ID,
+  ROUTE_BY_PATH,
+  SAMPLE_CLIPS,
+  buildJsonLdForRoute,
+  normalizePathname,
+  type RouteDef,
+} from '../shared/routes-data.mjs';
+import { ensureAuthListener, getFirebaseMod, hasLikelyFirebaseAuthSession } from './firebase-loader';
+import type { LedgerEntryDoc, UserWalletDoc } from './firebase';
+import { ACCOUNT_CARD_HTML, CONVERTER_WORKSPACE_HTML, VERIFY_BOX_HTML } from './private-screens';
 import {
   MODELS,
   VOICES,
@@ -52,7 +31,6 @@ import {
   buildSubtitleSegments,
   chunks,
   classify,
-  encodeMp3Blob,
   estimateStats,
   formatSubtitles,
   getModelFallbackOrder,
@@ -83,6 +61,8 @@ const $ = <T extends HTMLElement>(selector: string): T => {
   if (!el) throw new Error(`Missing element: ${selector}`);
   return el as T;
 };
+
+const byId = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 
 const store = {
   get<T>(k: string, fallback: T): T {
@@ -138,10 +118,13 @@ function isByokActive(): boolean {
 
 let authResolved = false;
 let verifiedAdminSession = false;
+let verifiedAdminUid = '';
 let adminDataLoaded = false;
+let signedInScreensMounted = false;
+let workspaceEventsBound = false;
 
 function isAdminActive(user: User | null): boolean {
-  return Boolean(user && user.emailVerified && user.uid === ADMIN_UID && verifiedAdminSession);
+  return Boolean(user && user.emailVerified && verifiedAdminUid && user.uid === verifiedAdminUid && verifiedAdminSession);
 }
 
 let dictRules: PronunciationRule[] = store.get<PronunciationRule[]>('vs.dict', []);
@@ -164,6 +147,8 @@ let lastSrtName = '';
 let lastVttName = '';
 let loadedDocTitle = '';
 let fullLoadedDocText = '';
+let pendingEditorText = '';
+let pendingAudioTitle = '';
 let detectedChapters: ChapterItem[] = [];
 let loadedFile: File | null = null;
 let loadedPagesText: string[] = [];
@@ -235,29 +220,52 @@ function buildDownloadFilename(
   return seen === 0 ? key : `${stem}-${seen + 1}.${ext}`;
 }
 
+function getEditorTextValue(): string {
+  const el = byId<HTMLTextAreaElement>('text');
+  return el ? el.value : pendingEditorText;
+}
+
+function getAudioTitleValue(): string {
+  const el = byId<HTMLInputElement>('audioTitle');
+  return el ? el.value : pendingAudioTitle;
+}
+
+function setAudioTitleValue(val: string) {
+  pendingAudioTitle = val;
+  const el = byId<HTMLInputElement>('audioTitle');
+  if (el) el.value = val;
+}
+
 function say(msg: string) {
-  $('#statusErr').textContent = '';
-  $('#status').textContent = msg;
+  const errEl = byId('statusErr');
+  const okEl = byId('status');
+  if (errEl) errEl.textContent = '';
+  if (okEl) okEl.textContent = msg;
 }
 
 function sayError(msg: string) {
-  $('#status').textContent = '';
-  $('#statusErr').textContent = msg;
+  const okEl = byId('status');
+  const errEl = byId('statusErr');
+  if (okEl) okEl.textContent = '';
+  if (errEl) errEl.textContent = msg;
 }
 
 function sayAuth(msg: string) {
+  const authMsg = byId('authMsg');
+  const verifyMsg = byId('verifyMsg');
+  const accountMsg = byId('accountMsg');
   if (!currentUser) {
-    $('#authMsg').textContent = msg;
-    $('#verifyMsg').textContent = '';
-    $('#accountMsg').textContent = '';
+    if (authMsg) authMsg.textContent = msg;
+    if (verifyMsg) verifyMsg.textContent = '';
+    if (accountMsg) accountMsg.textContent = '';
   } else if (!currentUser.emailVerified) {
-    $('#authMsg').textContent = '';
-    $('#verifyMsg').textContent = msg;
-    $('#accountMsg').textContent = '';
+    if (authMsg) authMsg.textContent = '';
+    if (verifyMsg) verifyMsg.textContent = msg;
+    if (accountMsg) accountMsg.textContent = '';
   } else {
-    $('#authMsg').textContent = '';
-    $('#verifyMsg').textContent = '';
-    $('#accountMsg').textContent = msg;
+    if (authMsg) authMsg.textContent = '';
+    if (verifyMsg) verifyMsg.textContent = '';
+    if (accountMsg) accountMsg.textContent = msg;
   }
 }
 
@@ -282,7 +290,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function num(id: string, lo: number, hi: number, fallback: number): number {
-  const v = parseFloat($<HTMLInputElement>(id).value);
+  const el = document.querySelector<HTMLInputElement>(id);
+  if (!el) return fallback;
+  const v = parseFloat(el.value);
   return Number.isNaN(v) ? fallback : Math.min(hi, Math.max(lo, v));
 }
 
@@ -309,71 +319,21 @@ function formatAuthError(err: unknown): string {
   return msg;
 }
 
-/* ---- Routing & Navigation Drawer ---- */
-const SEO_HOME_TITLE = 'Voice Studio: Turn PDFs, Books & Urdu Notes into Clean MP3 Audio';
-const SEO_HOME_DESC =
-  'Convert PDFs, EPUB books, Word files, and Urdu or English notes into clear MP3 audio, synced subtitles, and study videos—privately in your browser.';
-const pages = [
-  'tool',
-  'pdfStudio',
-  'podcastStudio',
-  'urduTts',
-  'videoSubtitles',
-  'account',
-  'admin',
-  'guides',
-  'formats',
-  'faq',
-  'about',
-  'contact',
-  'privacy',
-  'terms',
-] as const;
-type PageId = (typeof pages)[number];
+/* ---- Routing, Outlet Rendering & Accessibility Drawers ---- */
+type PageId = string;
 
-const PAGE_PATHS: Record<PageId, string> = {
-  tool: '/',
-  pdfStudio: '/pdf-to-audio',
-  podcastStudio: '/podcast-studio',
-  urduTts: '/urdu-tts',
-  videoSubtitles: '/video-subtitles',
-  account: '/account',
-  admin: '/admin',
-  guides: '/guides',
-  formats: '/formats',
-  faq: '/faq',
-  about: '/about',
-  contact: '/contact',
-  privacy: '/privacy',
-  terms: '/terms',
-};
-
-function matchPageSlug(rawSlug: string): PageId | null {
-  const clean = rawSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
-  if (!clean) return 'tool';
-  for (const id of pages) {
-    const targetSlug = PAGE_PATHS[id].replace(/^\/+/, '').toLowerCase();
-    if (clean === targetSlug || clean === id.toLowerCase()) {
-      return id;
-    }
-  }
-  return null;
-}
-
-function resolvePageId(): PageId {
-  const fromPath = matchPageSlug(location.pathname);
-  if (fromPath && (fromPath !== 'tool' || location.pathname === '/' || location.pathname === '')) {
-    return fromPath;
-  }
+function resolveRoute(): RouteDef {
+  const cleanPath = normalizePathname(location.pathname);
+  const direct = ROUTE_BY_PATH.get(cleanPath);
+  if (direct) return direct;
   if (location.hash) {
-    const fromHash = matchPageSlug(location.hash.slice(1));
-    if (fromHash) return fromHash;
+    const hashSlug = location.hash.slice(1).trim();
+    const byIdMatch = ROUTE_BY_PAGE_ID.get(hashSlug);
+    if (byIdMatch) return byIdMatch;
+    const byPathMatch = ROUTE_BY_PATH.get(normalizePathname(hashSlug));
+    if (byPathMatch) return byPathMatch;
   }
-  return 'tool';
-}
-
-function getPagePath(id: PageId): string {
-  return PAGE_PATHS[id];
+  return ROUTE_BY_PATH.get('/404') || ROUTES[0];
 }
 
 function setBackgroundInert(isInert: boolean) {
@@ -584,24 +544,24 @@ function closeDrawer(restoreFocus = true) {
 function openExportModal() {
   closeDrawer(false);
   closeA11yDrawer(false);
-  const modal = document.getElementById('exportModal');
-  const backdrop = document.getElementById('exportBackdrop');
-  const openBtn = document.getElementById('openExportModalBtn');
+  const modal = byId('exportModal');
+  const backdrop = byId('exportBackdrop');
+  const openBtn = byId('openExportModalBtn');
   if (!modal || !backdrop || !modal.hidden) return;
-  const exportMsg = document.getElementById('exportPopupMsg');
+  const exportMsg = byId('exportPopupMsg');
   if (exportMsg) exportMsg.textContent = '';
   backdrop.hidden = false;
   modal.hidden = false;
   openBtn?.setAttribute('aria-expanded', 'true');
   setBackgroundInert(true);
-  const closeBtn = document.getElementById('closeExportBtn');
+  const closeBtn = byId('closeExportBtn');
   (closeBtn || modal).focus();
 }
 
 function closeExportModal(restoreFocus = true) {
-  const modal = document.getElementById('exportModal');
-  const backdrop = document.getElementById('exportBackdrop');
-  const openBtn = document.getElementById('openExportModalBtn');
+  const modal = byId('exportModal');
+  const backdrop = byId('exportBackdrop');
+  const openBtn = byId('openExportModalBtn');
   if (!modal || !backdrop || modal.hidden) return;
   modal.hidden = true;
   backdrop.hidden = true;
@@ -612,54 +572,626 @@ function closeExportModal(restoreFocus = true) {
   }
 }
 
-function focusActivePageHeading(section: HTMLElement) {
-  const visibleHeading = Array.from(section.querySelectorAll<HTMLElement>('h1[tabindex="-1"]')).find(
+/* ---- Interactive Public Controls (Samples, Hero Drop Zone, Before/After, Auth Card, Contact, Studios) ---- */
+let activeSampleId: string | null = null;
+
+function stopInteractiveSample(announce = false) {
+  try {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  } catch {
+    // Ignore
+  }
+  activeSampleId = null;
+  document.querySelectorAll<HTMLButtonElement>('.sample-play-btn').forEach((btn) => {
+    btn.setAttribute('aria-pressed', 'false');
+    btn.textContent = 'Play sample';
+  });
+  const statusEl = byId('samplePlaybackStatus');
+  if (announce && statusEl) statusEl.textContent = 'Sample playback stopped.';
+}
+
+function speakInteractiveText(text: string, langHint: string, statusTargetId: string, onEnd?: () => void) {
+  const statusEl = byId(statusTargetId);
+  if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+    try {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = langHint;
+      utter.rate = 0.96;
+      const voices = window.speechSynthesis.getVoices();
+      const langBase = langHint.split('-')[0].toLowerCase();
+      const matchedVoice = voices.find((v) => v.lang.toLowerCase().startsWith(langBase));
+      if (matchedVoice) utter.voice = matchedVoice;
+      utter.onend = () => {
+        if (statusEl) statusEl.textContent = 'Finished sample preview.';
+        onEnd?.();
+      };
+      utter.onerror = () => {
+        if (statusEl) statusEl.textContent = 'Sign in with a verified account for full studio neural voice audio.';
+        onEnd?.();
+      };
+      window.speechSynthesis.speak(utter);
+      if (statusEl) {
+        statusEl.textContent = 'Playing quick browser preview — sign in for full Studio voices and MP3 download.';
+      }
+      return;
+    } catch {
+      // Fallback below
+    }
+  }
+  if (statusEl) {
+    statusEl.textContent =
+      'Instant voice preview is unavailable in this browser. Sign in with a verified account to generate and download MP3 audio.';
+  }
+  onEnd?.();
+}
+
+function bindAuthCardControls() {
+  const tabSignIn = byId('tabSignIn');
+  const tabSignUp = byId('tabSignUp');
+  const googleBtn = byId('googleSignIn');
+  const authForm = byId<HTMLFormElement>('authForm');
+  const authResetBtn = byId('authReset');
+  if (!tabSignIn || !tabSignUp || !googleBtn || !authForm || !authResetBtn) return;
+
+  tabSignIn.onclick = () => setAuthTab('signin');
+  tabSignUp.onclick = () => setAuthTab('signup');
+
+  googleBtn.onclick = async () => {
+    sayAuth('Opening Google sign-in…');
+    try {
+      const fb = await ensureAuthListener(handleAuthUser);
+      await fb.signInWithGoogle();
+      sayAuth('Signed in with Google.');
+    } catch (err) {
+      sayAuth(formatAuthError(err));
+    }
+  };
+
+  authForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const emailEl = $<HTMLInputElement>('#authEmail');
+    const passEl = $<HTMLInputElement>('#authPass');
+    const email = emailEl.value.trim();
+    const pass = passEl.value;
+    const name = byId<HTMLInputElement>('authName')?.value.trim() || '';
+
+    emailEl.removeAttribute('aria-invalid');
+    passEl.removeAttribute('aria-invalid');
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      emailEl.setAttribute('aria-invalid', 'true');
+      sayAuth('Please enter a valid email address.');
+      emailEl.focus();
+      return;
+    }
+    if (pass.length < 6) {
+      passEl.setAttribute('aria-invalid', 'true');
+      sayAuth('Password must be at least 6 characters.');
+      passEl.focus();
+      return;
+    }
+
+    sayAuth(authMode === 'signup' ? 'Creating your account…' : 'Signing in…');
+    try {
+      const fb = await ensureAuthListener(handleAuthUser);
+      if (authMode === 'signup') {
+        await fb.signUpEmail(email, pass, name);
+        sayAuth('Account created. Check your inbox for a verification link.');
+      } else {
+        await fb.signInEmail(email, pass);
+        sayAuth('Signed in.');
+      }
+    } catch (err) {
+      sayAuth(formatAuthError(err));
+    }
+  };
+
+  authResetBtn.onclick = async () => {
+    const emailEl = byId<HTMLInputElement>('authEmail');
+    const email = emailEl?.value.trim() || '';
+    if (!email) {
+      sayAuth('Type your email address above first, then press Reset password.');
+      emailEl?.focus();
+      return;
+    }
+    try {
+      const fb = await ensureAuthListener(handleAuthUser);
+      await fb.sendResetEmail(email);
+      sayAuth(`Password reset email sent to ${email}.`);
+    } catch (err) {
+      sayAuth(formatAuthError(err));
+    }
+  };
+}
+
+function bindHomeInteractiveControls() {
+  byId('startConvertingFreeBtn')?.addEventListener('click', () => {
+    const authCard = byId('authCard');
+    authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    byId('googleSignIn')?.focus();
+  });
+
+  byId('finalCtaSignInBtn')?.addEventListener('click', () => {
+    const authCard = byId('authCard');
+    authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    byId('googleSignIn')?.focus();
+  });
+
+  byId('hearSampleBtn')?.addEventListener('click', () => {
+    const samplesSec = byId('samplesSection');
+    samplesSec?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const firstBtn = document.querySelector<HTMLButtonElement>('.sample-play-btn');
+    firstBtn?.focus();
+  });
+
+  const dropZone = byId('landingDropZone');
+  const pickBtn = byId('landingPickFileBtn');
+  const fileInput = byId<HTMLInputElement>('landingFileInput');
+  const playExcerptBtn = byId('landingPlayExcerptBtn');
+
+  if (pickBtn && fileInput) {
+    pickBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async () => {
+      const f = fileInput.files?.[0];
+      if (!f) return;
+      await handleSelectedFile(f);
+      fileInput.value = '';
+    };
+  }
+
+  if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-active');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-active');
+    });
+    dropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-active');
+      const f = e.dataTransfer?.files?.[0];
+      if (f && !running && !extracting) {
+        await handleSelectedFile(f);
+      }
+    });
+  }
+
+  if (playExcerptBtn) {
+    playExcerptBtn.onclick = () => {
+      const previewText = byId('landingSampleTextPreview')?.textContent?.trim() || getEditorTextValue().slice(0, 220);
+      if (previewText) {
+        speakInteractiveText(previewText.slice(0, 240), 'en-US', 'landingDropStatus');
+      }
+    };
+  }
+
+  // Before / After PDF cleanup interactive switch
+  const baToggle = byId('beforeAfterToggleBtn');
+  const baListen = byId('beforeAfterListenBtn');
+  const baTitle = byId('beforeAfterStateTitle');
+  const baDisplay = byId('beforeAfterDisplay');
+  if (baToggle && baTitle && baDisplay) {
+    let showingClean = true;
+    const cleanText =
+      'Chapter 3: Cell Structure. Every living organism relies on tiny compartments called cells to produce energy and carry genetic instructions.';
+    const rawText =
+      '14 | Journal of Plant Biology Vol. 8 — Chapter 3: Cell Struc-\nture. Every living organism [Ref 12] relies on tiny com-\npartments called cells. Page 14 of 220 · www.journal.example.org';
+
+    baToggle.onclick = () => {
+      showingClean = !showingClean;
+      baToggle.setAttribute('aria-pressed', String(showingClean));
+      if (showingClean) {
+        baTitle.textContent = 'Clean Voice Studio script (page clutter swept away)';
+        baDisplay.textContent = cleanText;
+        baToggle.textContent = 'Show raw noisy PDF text';
+      } else {
+        baTitle.textContent = 'Raw PDF text (what regular readers say aloud)';
+        baDisplay.textContent = rawText;
+        baToggle.textContent = 'Show clean Voice Studio script';
+      }
+    };
+
+    if (baListen) {
+      baListen.onclick = () => {
+        speakInteractiveText(baDisplay.textContent || cleanText, 'en-US', 'beforeAfterStateTitle');
+      };
+    }
+  }
+}
+
+function bindSamplePlayerButtons() {
+  document.querySelectorAll<HTMLButtonElement>('.sample-play-btn').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.sampleId as keyof typeof SAMPLE_CLIPS | undefined;
+      if (!id || !SAMPLE_CLIPS[id]) return;
+      if (activeSampleId === id) {
+        stopInteractiveSample(true);
+        return;
+      }
+      stopInteractiveSample(false);
+      activeSampleId = id;
+      btn.setAttribute('aria-pressed', 'true');
+      btn.textContent = 'Stop preview';
+      const clip = SAMPLE_CLIPS[id];
+      speakInteractiveText(clip.script, clip.voiceLang, 'samplePlaybackStatus', () => {
+        if (activeSampleId === id) {
+          activeSampleId = null;
+          btn.setAttribute('aria-pressed', 'false');
+          btn.textContent = 'Play sample';
+        }
+      });
+    };
+  });
+}
+
+function bindContactForm() {
+  const form = byId<HTMLFormElement>('contactForm');
+  const submitBtn = byId<HTMLButtonElement>('contactSubmit');
+  const statusEl = byId('contactStatus');
+  const errEl = byId('contactErr');
+  if (!form || !submitBtn || !statusEl || !errEl) return;
+
+  if (currentUser?.displayName && !byId<HTMLInputElement>('contactName')?.value.trim()) {
+    const el = byId<HTMLInputElement>('contactName');
+    if (el) el.value = currentUser.displayName;
+  }
+  if (currentUser?.email && !byId<HTMLInputElement>('contactEmail')?.value.trim()) {
+    const el = byId<HTMLInputElement>('contactEmail');
+    if (el) el.value = currentUser.email;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errEl.textContent = '';
+    statusEl.textContent = '';
+
+    const nameEl = $<HTMLInputElement>('#contactName');
+    const emailEl = $<HTMLInputElement>('#contactEmail');
+    const subjectEl = $<HTMLSelectElement>('#contactSubject');
+    const messageEl = $<HTMLTextAreaElement>('#contactMessage');
+
+    nameEl.removeAttribute('aria-invalid');
+    emailEl.removeAttribute('aria-invalid');
+    messageEl.removeAttribute('aria-invalid');
+
+    if (nameEl.value.trim().length < 2) {
+      nameEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter your full name (at least 2 characters).';
+      nameEl.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+      emailEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter a valid reply email address.';
+      emailEl.focus();
+      return;
+    }
+    if (messageEl.value.trim().length < 10) {
+      messageEl.setAttribute('aria-invalid', 'true');
+      errEl.textContent = 'Enter a message of at least 10 characters.';
+      messageEl.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Sending your message…';
+
+    try {
+      const fb = await getFirebaseMod();
+      const refId = await fb.submitContactMessage({
+        name: nameEl.value,
+        email: emailEl.value,
+        subject: subjectEl.value,
+        message: messageEl.value,
+      });
+      messageEl.value = '';
+      statusEl.textContent = `Message sent. Reference: ${refId}.`;
+      statusEl.focus?.();
+    } catch (err) {
+      statusEl.textContent = '';
+      const raw = err instanceof Error ? err.message : 'Could not send message right now.';
+      errEl.textContent = raw.includes('"error":')
+        ? 'Message could not be saved right now. Please check all fields and try again.'
+        : raw;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function bindPdfAndPodcastOutletControls() {
+  const pdfPickBtn = byId('pdfAgentPickFileBtn');
+  if (pdfPickBtn) {
+    pdfPickBtn.onclick = () => {
+      const wsFile = byId<HTMLInputElement>('file');
+      if (wsFile) {
+        wsFile.click();
+        return;
+      }
+      // Fallback file picker when visiting /pdf-to-audio logged out
+      const tmpInput = document.createElement('input');
+      tmpInput.type = 'file';
+      tmpInput.accept =
+        '.pdf,.docx,.epub,.txt,.md,text/plain,application/pdf,application/epub+zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      tmpInput.onchange = async () => {
+        const f = tmpInput.files?.[0];
+        if (f) await handleSelectedFile(f);
+      };
+      tmpInput.click();
+    };
+  }
+
+  const pdfRunBtn = byId('pdfAgentRunBtn');
+  if (pdfRunBtn) pdfRunBtn.onclick = () => void runPdfRecordingAgent(false);
+  const pdfLoadBtn = byId('pdfAgentLoadOnlyBtn');
+  if (pdfLoadBtn) pdfLoadBtn.onclick = () => void runPdfRecordingAgent(true);
+
+  if (loadedFile) {
+    const infoEl = byId('pdfStudioFileInfo');
+    if (infoEl) {
+      infoEl.textContent = `Loaded: ${loadedFile.name}. Enter which chapter, topic, or page range to extract below.`;
+    }
+  }
+
+  const applyTplBtn = byId('applyTemplateBtn');
+  if (applyTplBtn) {
+    applyTplBtn.onclick = () => {
+      const key = byId<HTMLSelectElement>('templateSelect')?.value || '';
+      const tpl = CREATOR_TEMPLATES[key];
+      if (!tpl) return;
+      const current = getEditorTextValue().trim();
+      if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
+        sampleReplaceArmed = true;
+        setStudioStatus('Your Speech Studio editor already has text. Press Load selected template again to replace it.');
+        return;
+      }
+      cfg.mode = tpl.mode;
+      cfg.style = tpl.style;
+      const modeEl = byId<HTMLSelectElement>('mode');
+      if (modeEl) modeEl.value = tpl.mode;
+      const styleEl = byId<HTMLInputElement>('style');
+      if (styleEl) styleEl.value = tpl.style;
+      syncStylePresetSelect(tpl.style);
+      syncOptionVisibility();
+      store.set('vs.cfg', cfg);
+      loadedDocTitle = '';
+      setAudioTitleValue(tpl.title);
+      setText(tpl.text, 'sample');
+      setStudioStatus(
+        `Loaded "${tpl.title}" (${tpl.mode === 'dialogue' ? '2-speaker dialogue' : 'single voice'}). Open Speech Studio or generate audio below.`
+      );
+    };
+  }
+
+  const genPodcastBtn = byId('genPodcastBtn');
+  if (genPodcastBtn) {
+    genPodcastBtn.onclick = async () => {
+      if (!isByokActive() && !requireSignedInUser()) return;
+      const topicInput = byId<HTMLInputElement>('podcastTopic')?.value.trim() || '';
+      const editorText = getEditorTextValue().trim();
+      const topic = topicInput || editorText.slice(0, 5000);
+      const length = byId<HTMLSelectElement>('podcastLen')?.value || 'short';
+
+      if (topic.length < 3) {
+        setStudioErr('Enter a podcast topic above, or paste notes in Speech Studio first.');
+        byId('podcastTopic')?.focus();
+        return;
+      }
+
+      studioBusy = true;
+      ui();
+      setStudioStatus('Generating 2-speaker podcast script…');
+      try {
+        const script = await runStudioAction({ action: 'podcast', topic, length });
+        cfg.mode = 'dialogue';
+        const modeEl = byId<HTMLSelectElement>('mode');
+        if (modeEl) modeEl.value = 'dialogue';
+        syncOptionVisibility();
+        store.set('vs.cfg', cfg);
+        setText(script, 'user');
+        if (topicInput && !getAudioTitleValue().trim()) {
+          setAudioTitleValue(`${topicInput.slice(0, 50)} Podcast`);
+        }
+        setStudioStatus(
+          `Generated 2-speaker podcast script (${[...script].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
+        );
+      } catch (err) {
+        setStudioErr(err instanceof Error ? err.message : 'Could not generate podcast script.');
+      } finally {
+        studioBusy = false;
+        ui();
+      }
+    };
+  }
+
+  const translateBtn = byId('translateBtn');
+  if (translateBtn) {
+    translateBtn.onclick = async () => {
+      if (!isByokActive() && !requireSignedInUser()) return;
+      const currentText = getEditorTextValue().trim();
+      const targetLang = byId<HTMLSelectElement>('translateLang')?.value || 'Urdu';
+      if (!currentText) {
+        setStudioErr('Enter or load text in Speech Studio first before translating.');
+        return;
+      }
+
+      studioBusy = true;
+      ui();
+      setStudioStatus(`Translating & adapting script into ${targetLang}…`);
+      try {
+        const translated = await runStudioAction({
+          action: 'translate',
+          text: currentText.slice(0, 8000),
+          targetLang,
+        });
+        setText(translated, 'user');
+        setStudioStatus(
+          `Translated into ${targetLang} (${[...translated].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
+        );
+      } catch (err) {
+        setStudioErr(err instanceof Error ? err.message : 'Could not translate text.');
+      } finally {
+        studioBusy = false;
+        ui();
+      }
+    };
+  }
+
+  const sendBtn = byId('sendStudioToSpeechBtn');
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      if (!getEditorTextValue().trim()) {
+        setStudioErr('Load a template, generate a podcast script, or enter text first.');
+        return;
+      }
+      navigateToPage('tool', false);
+      byId('text')?.focus();
+    };
+  }
+
+  const recBtn = byId('recordFromStudioBtn');
+  if (recBtn) {
+    recBtn.onclick = () => {
+      if (!getEditorTextValue().trim()) {
+        setStudioErr('Load a template, generate a podcast script, or enter text first.');
+        return;
+      }
+      if (!requireSignedInUser()) return;
+      navigateToPage('tool', false);
+      byId('gen')?.click();
+    };
+  }
+}
+
+function bindOutletLinks(container: ParentNode) {
+  container.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const page = link.dataset.page;
+      if (page && ROUTE_BY_PAGE_ID.has(page)) {
+        e.preventDefault();
+        navigateToPage(page, true);
+      }
+    });
+  });
+}
+
+function bindCurrentOutletControls() {
+  const outlet = byId('pageOutlet');
+  if (!outlet) return;
+  bindOutletLinks(outlet);
+  bindAuthCardControls();
+  bindHomeInteractiveControls();
+  bindSamplePlayerButtons();
+  bindContactForm();
+  bindPdfAndPodcastOutletControls();
+}
+
+function focusActivePageHeading(container: HTMLElement) {
+  const visibleHeading = Array.from(container.querySelectorAll<HTMLElement>('h1[tabindex="-1"]')).find(
     (h) => h.offsetParent !== null
   );
   (visibleHeading || $('#main')).focus();
 }
 
+function syncPrivateWorkspaceVisibility(activePageId: PageId) {
+  const outlet = byId('pageOutlet');
+  const privateRoot = byId('appPrivateRoot');
+  const verifyBox = byId('authVerifyBox');
+  const converterWs = byId('converterWorkspace');
+
+  if (!outlet || !privateRoot) return;
+
+  if (activePageId === 'tool' && currentUser) {
+    outlet.hidden = true;
+    privateRoot.hidden = false;
+    if (verifyBox) verifyBox.hidden = currentUser.emailVerified;
+    if (converterWs) converterWs.hidden = !currentUser.emailVerified;
+  } else {
+    outlet.hidden = false;
+    privateRoot.hidden = true;
+    if (verifyBox) verifyBox.hidden = true;
+    if (converterWs) converterWs.hidden = true;
+  }
+
+  if (activePageId === 'account' && currentUser && currentUser.emailVerified) {
+    mountAccountCardIntoOutlet();
+  }
+}
+
 function route(moveFocus: boolean) {
-  let id = resolvePageId();
+  let targetRoute = resolveRoute();
+  let id = targetRoute.pageId;
 
   if (authResolved) {
     if (id === 'admin' && !isAdminActive(currentUser)) {
-      id = 'tool';
+      targetRoute = ROUTE_BY_PAGE_ID.get('tool') || targetRoute;
+      id = targetRoute.pageId;
       history.replaceState(null, '', '/');
     } else if (id === 'account' && (!currentUser || !currentUser.emailVerified)) {
-      id = 'tool';
+      targetRoute = ROUTE_BY_PAGE_ID.get('tool') || targetRoute;
+      id = targetRoute.pageId;
       history.replaceState(null, '', '/');
+    }
+  } else if (id === 'account' || id === 'admin') {
+    void ensureAuthListener(handleAuthUser);
+  }
+
+  const outlet = byId('pageOutlet');
+  if (outlet) {
+    const renderedId = outlet.getAttribute('data-rendered-page');
+    if (renderedId !== id) {
+      stopInteractiveSample(false);
+      outlet.innerHTML = targetRoute.html;
+      outlet.setAttribute('data-rendered-page', id);
+      bindCurrentOutletControls();
     }
   }
 
-  pages.forEach((p) => {
-    $('#' + p).hidden = p !== id;
-  });
+  syncPrivateWorkspaceVisibility(id);
+
   document.querySelectorAll<HTMLAnchorElement>('.drawer-nav a[data-page]').forEach((a) => {
     if (a.dataset.page === id) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
 
-  const section = $('#' + id);
-  const nextTitle = id === 'tool' ? SEO_HOME_TITLE : `${section.dataset.title || 'Voice Studio'} | Voice Studio`;
-  const nextDesc = id === 'tool' ? SEO_HOME_DESC : section.dataset.description || SEO_HOME_DESC;
-  const canonicalUrl = `${window.location.origin}${getPagePath(id)}`;
-  const robotsPolicy =
-    id === 'account' || id === 'admin' ? 'noindex, nofollow' : 'index, follow, max-snippet:-1, max-image-preview:large';
-
-  document.title = nextTitle;
-  document.querySelector('meta[name="robots"]')?.setAttribute('content', robotsPolicy);
-  document.querySelector('meta[name="description"]')?.setAttribute('content', nextDesc);
-  document.querySelector('meta[property="og:title"]')?.setAttribute('content', nextTitle);
-  document.querySelector('meta[property="og:description"]')?.setAttribute('content', nextDesc);
-  document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', nextTitle);
-  document.querySelector('meta[name="twitter:description"]')?.setAttribute('content', nextDesc);
+  const canonicalUrl = `${window.location.origin}${targetRoute.path === '/404' ? '' : targetRoute.path}`;
+  document.title = targetRoute.title;
+  document.querySelector('meta[name="robots"]')?.setAttribute('content', targetRoute.robots);
+  document.querySelector('meta[name="description"]')?.setAttribute('content', targetRoute.description);
+  document.querySelector('meta[property="og:title"]')?.setAttribute('content', targetRoute.title);
+  document.querySelector('meta[property="og:description"]')?.setAttribute('content', targetRoute.description);
+  document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', targetRoute.title);
+  document.querySelector('meta[name="twitter:description"]')?.setAttribute('content', targetRoute.description);
   document.getElementById('canonicalLink')?.setAttribute('href', canonicalUrl);
   document.getElementById('ogUrl')?.setAttribute('content', canonicalUrl);
 
-  if (id === 'admin' && isAdminActive(currentUser) && !adminDataLoaded) {
-    adminDataLoaded = true;
-    document.getElementById('adminRefreshAll')?.click();
+  const ldScript = document.getElementById('ldJsonScript');
+  if (ldScript) {
+    ldScript.textContent = buildJsonLdForRoute(targetRoute, window.location.origin);
+  }
+
+  if (id === 'admin' && isAdminActive(currentUser)) {
+    void (async () => {
+      const { mountAdminPanel } = await import('./admin-panel');
+      if (!document.getElementById('adminRefreshAll')) {
+        mountAdminPanel({
+          getCurrentUser: () => currentUser,
+          isAdminActive,
+          navigateToPage: (target, focus) => navigateToPage(target, focus),
+          fetchBackendQuota,
+          loadPublicSiteStatus,
+        });
+      }
+      if (!adminDataLoaded) {
+        adminDataLoaded = true;
+        document.getElementById('adminRefreshAll')?.click();
+      }
+    })();
   }
 
   if ($('#navDrawer').hidden && $('#a11yDrawer').hidden && $('#exportModal').hidden) {
@@ -668,7 +1200,8 @@ function route(moveFocus: boolean) {
 
   if (moveFocus) {
     window.scrollTo(0, 0);
-    focusActivePageHeading(section);
+    const activeContainer = id === 'tool' && currentUser ? byId('appPrivateRoot') || outlet || $('#main') : outlet || $('#main');
+    focusActivePageHeading(activeContainer);
   }
 }
 
@@ -681,7 +1214,8 @@ function navigateToPage(id: PageId, moveFocus = true) {
     closeDrawer(false);
     id = 'tool';
   }
-  const targetPath = getPagePath(id);
+  const targetRoute = ROUTE_BY_PAGE_ID.get(id) || ROUTE_BY_PAGE_ID.get('tool');
+  const targetPath = targetRoute?.path || '/';
   if (location.pathname !== targetPath || location.hash) {
     history.pushState(null, '', targetPath);
   }
@@ -743,22 +1277,8 @@ $('#a11yBackdrop').onclick = () => closeA11yDrawer(true);
 $('#openExportModalBtn').onclick = () => openExportModal();
 $('#closeExportBtn').onclick = () => closeExportModal(true);
 $('#exportBackdrop').onclick = () => closeExportModal(true);
-document.getElementById('startConvertingFreeBtn')?.addEventListener('click', () => {
-  const authCard = document.getElementById('authCard');
-  authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('googleSignIn')?.focus();
-});
 
-document.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach((link) => {
-  link.addEventListener('click', (e) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const page = link.dataset.page as PageId | undefined;
-    if (page && (pages as readonly string[]).includes(page)) {
-      e.preventDefault();
-      navigateToPage(page, true);
-    }
-  });
-});
+bindOutletLinks(document);
 
 function renderServerHealthStatus(state: 'checking' | 'ready' | 'nokey' | 'missing404' | 'offline') {
   const el = document.getElementById('serverHealthStatus');
@@ -773,11 +1293,11 @@ function renderServerHealthStatus(state: 'checking' | 'ready' | 'nokey' | 'missi
     } else if (state === 'nokey') {
       el.classList.add('status-bad');
       el.textContent =
-        'Speech server status: Server is online, but no server speech key is active yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1 or add GEMINI_API_KEY in hosting secrets.';
+        'Speech server status: Server is online, but no server speech key is active yet. Turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
     } else if (state === 'missing404') {
       el.classList.add('status-bad');
       el.textContent =
-        'Speech server status: Backend API returned 404 on this URL. Re-deploy with Worker/API routes, or turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
+        'Speech server status: Backend API returned 404 on this URL. Turn on Own Gemini API Key (Unlimited Mode) in Step 1.';
     } else {
       el.classList.add('status-bad');
       el.textContent =
@@ -791,9 +1311,9 @@ function renderServerHealthStatus(state: 'checking' | 'ready' | 'nokey' | 'missi
       notice.hidden = false;
       notice.textContent =
         state === 'nokey'
-          ? 'Shared server speech key is not configured on this server yet. Open Step 1 → Own Gemini API Key (Unlimited Mode) to generate audio with your free key, or add GEMINI_API_KEY in hosting secrets.'
+          ? 'Shared server speech key is not configured on this server yet. Open Step 1 -> Own Gemini API Key (Unlimited Mode) to generate audio with your free key.'
           : state === 'missing404'
-            ? 'Speech server route was not found on this deployment. Open Step 1 → Own Gemini API Key (Unlimited Mode) to generate audio directly from your browser.'
+            ? 'Speech server route was not found on this deployment. Open Step 1 -> Own Gemini API Key (Unlimited Mode) to generate audio directly from your browser.'
             : 'Shared speech server returned an error checking availability. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 anytime.';
     } else if (state === 'ready' || isByokActive()) {
       notice.hidden = true;
@@ -823,20 +1343,32 @@ function updateWorkspaceBalanceBar() {
 
 function renderQuota(q: QuotaState) {
   activeQuota = q;
-  $('#statDailyRemaining').textContent = `${q.remainingDaily.toLocaleString()} chars`;
-  $('#statPaidCredits').textContent = `${q.paidCredits.toLocaleString()} chars`;
-  $('#statTotalUsed').textContent = `${q.totalCharsUsed.toLocaleString()} chars`;
-  $('#statAccountPlan').textContent = q.plan === 'pro' ? 'Extended' : 'Free';
-  const emailText = q.email || currentUser?.email || '';
-  $('#userAccountMeta').textContent = emailText
-    ? `${emailText} · ${q.dailyLimit.toLocaleString()} chars daily allowance`
-    : `${q.dailyLimit.toLocaleString()} chars daily allowance`;
+  const remEl = byId('statDailyRemaining');
+  if (remEl) remEl.textContent = `${q.remainingDaily.toLocaleString()} chars`;
+  const credEl = byId('statPaidCredits');
+  if (credEl) credEl.textContent = `${q.paidCredits.toLocaleString()} chars`;
+  const usedEl = byId('statTotalUsed');
+  if (usedEl) usedEl.textContent = `${q.totalCharsUsed.toLocaleString()} chars`;
+  const planEl = byId('statAccountPlan');
+  if (planEl) planEl.textContent = q.plan === 'pro' ? 'Extended' : 'Free';
 
-  const bar = $<HTMLProgressElement>('#dailyBar');
-  bar.max = Math.max(1, q.dailyLimit);
-  bar.value = Math.min(q.dailyLimit, q.dailyUsedChars);
-  $('#dailyBarLabel').textContent =
-    `Daily free allowance used: ${q.dailyUsedChars.toLocaleString()} of ${q.dailyLimit.toLocaleString()} characters`;
+  const emailText = q.email || currentUser?.email || '';
+  const metaEl = byId('userAccountMeta');
+  if (metaEl) {
+    metaEl.textContent = emailText
+      ? `${emailText} · ${q.dailyLimit.toLocaleString()} chars daily allowance`
+      : `${q.dailyLimit.toLocaleString()} chars daily allowance`;
+  }
+
+  const bar = byId<HTMLProgressElement>('dailyBar');
+  if (bar) {
+    bar.max = Math.max(1, q.dailyLimit);
+    bar.value = Math.min(q.dailyLimit, q.dailyUsedChars);
+  }
+  const barLabel = byId('dailyBarLabel');
+  if (barLabel) {
+    barLabel.textContent = `Daily free allowance used: ${q.dailyUsedChars.toLocaleString()} of ${q.dailyLimit.toLocaleString()} characters`;
+  }
 
   updateWorkspaceBalanceBar();
 
@@ -844,14 +1376,16 @@ function renderQuota(q: QuotaState) {
     renderServerHealthStatus(q.backendConfigured ? 'ready' : 'nokey');
   }
 
-  const notice = $('#backendNotice');
-  if (q.backendConfigured === false && !isByokActive()) {
-    notice.hidden = false;
-    notice.textContent =
-      'Shared server allowance is currently unavailable on this deployment. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 to generate audio directly from your browser.';
-  } else {
-    notice.hidden = true;
-    notice.textContent = '';
+  const notice = byId('backendNotice');
+  if (notice) {
+    if (q.backendConfigured === false && !isByokActive()) {
+      notice.hidden = false;
+      notice.textContent =
+        'Shared server allowance is currently unavailable on this deployment. You can turn on Own Gemini API Key (Unlimited Mode) in Step 1 to generate audio directly from your browser.';
+    } else {
+      notice.hidden = true;
+      notice.textContent = '';
+    }
   }
 
   updateCounts();
@@ -860,7 +1394,6 @@ function renderQuota(q: QuotaState) {
 function renderWalletDoc(w: UserWalletDoc) {
   const today = new Date().toISOString().slice(0, 10);
   const usedToday = w.dailyDate === today ? w.dailyUsedChars : 0;
-  // Keep higher dailyUsedChars if KV tracked usage without Firestore Service Account
   const kvUsed = activeQuota ? activeQuota.dailyUsedChars : 0;
   const mergedUsed = Math.max(usedToday, kvUsed);
   const mergedRemaining = Math.max(0, w.dailyLimit - mergedUsed);
@@ -879,7 +1412,8 @@ function renderWalletDoc(w: UserWalletDoc) {
 }
 
 function renderLedger(entries: LedgerEntryDoc[]) {
-  const ul = $('#ledgerList');
+  const ul = byId('ledgerList');
+  if (!ul) return;
   ul.innerHTML = '';
   if (!entries.length) {
     const li = document.createElement('li');
@@ -912,7 +1446,6 @@ async function fetchBackendQuota(user: User) {
       renderServerHealthStatus('missing404');
       return;
     }
-    // Probe public /api/health fallback if quota failed (e.g. token refresh)
     const healthRes = await fetch('/api/health');
     if (healthRes.status === 404) {
       renderServerHealthStatus('missing404');
@@ -941,117 +1474,21 @@ function clearFirestoreListeners() {
 function setAuthTab(mode: 'signin' | 'signup') {
   authMode = mode;
   const isSignUp = mode === 'signup';
-  $('#tabSignIn').setAttribute('aria-pressed', String(!isSignUp));
-  $('#tabSignUp').setAttribute('aria-pressed', String(isSignUp));
-  $('#authNameWrap').hidden = !isSignUp;
-  $('#authSubmit').textContent = isSignUp ? 'Create account' : 'Sign in';
-  $<HTMLInputElement>('#authPass').autocomplete = isSignUp ? 'new-password' : 'current-password';
+  byId('tabSignIn')?.setAttribute('aria-pressed', String(!isSignUp));
+  byId('tabSignUp')?.setAttribute('aria-pressed', String(isSignUp));
+  const nameWrap = byId('authNameWrap');
+  if (nameWrap) nameWrap.hidden = !isSignUp;
+  const submitBtn = byId('authSubmit');
+  if (submitBtn) submitBtn.textContent = isSignUp ? 'Create account' : 'Sign in';
+  const passEl = byId<HTMLInputElement>('authPass');
+  if (passEl) passEl.autocomplete = isSignUp ? 'new-password' : 'current-password';
 }
 
-$('#tabSignIn').onclick = () => setAuthTab('signin');
-$('#tabSignUp').onclick = () => setAuthTab('signup');
-
-$('#googleSignIn').onclick = async () => {
-  sayAuth('Opening Google sign-in…');
-  try {
-    await signInWithGoogle();
-    sayAuth('Signed in with Google.');
-  } catch (err) {
-    sayAuth(formatAuthError(err));
-  }
-};
-
-$('#authForm').onsubmit = async (e) => {
-  e.preventDefault();
-  const emailEl = $<HTMLInputElement>('#authEmail');
-  const passEl = $<HTMLInputElement>('#authPass');
-  const email = emailEl.value.trim();
-  const pass = passEl.value;
-  const name = $<HTMLInputElement>('#authName').value.trim();
-
-  emailEl.removeAttribute('aria-invalid');
-  passEl.removeAttribute('aria-invalid');
-
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    emailEl.setAttribute('aria-invalid', 'true');
-    sayAuth('Please enter a valid email address.');
-    emailEl.focus();
-    return;
-  }
-  if (pass.length < 6) {
-    passEl.setAttribute('aria-invalid', 'true');
-    sayAuth('Password must be at least 6 characters.');
-    passEl.focus();
-    return;
-  }
-
-  sayAuth(authMode === 'signup' ? 'Creating your account…' : 'Signing in…');
-  try {
-    if (authMode === 'signup') {
-      await signUpEmail(email, pass, name);
-      sayAuth('Account created. Check your inbox for a verification link.');
-    } else {
-      await signInEmail(email, pass);
-      sayAuth('Signed in.');
-    }
-  } catch (err) {
-    sayAuth(formatAuthError(err));
-  }
-};
-
-$('#authReset').onclick = async () => {
-  const email = $<HTMLInputElement>('#authEmail').value.trim();
-  if (!email) {
-    sayAuth('Type your email address above first, then press Forgot password.');
-    $('#authEmail').focus();
-    return;
-  }
-  try {
-    await sendResetEmail(email);
-    sayAuth(`Password reset email sent to ${email}.`);
-  } catch (err) {
-    sayAuth(formatAuthError(err));
-  }
-};
-
-$('#resendVerify').onclick = async () => {
-  if (!currentUser) return;
-  try {
-    await resendVerificationEmail(currentUser);
-    sayAuth('Verification email sent again. Check your inbox or spam folder.');
-  } catch (err) {
-    sayAuth(formatAuthError(err));
-  }
-};
-
-$('#refreshVerify').onclick = async () => {
-  if (!currentUser) return;
-  try {
-    await currentUser.reload();
-    if (auth.currentUser?.emailVerified) {
-      await handleAuthUser(auth.currentUser);
-      sayAuth('Email verified! Your 3,000 characters/day free allowance is now active.');
-    } else {
-      sayAuth('Your email is not verified yet. Open the link we sent to your inbox first.');
-    }
-  } catch (err) {
-    sayAuth(formatAuthError(err));
-  }
-};
-
-$('#refreshQuota').onclick = async () => {
-  if (!currentUser) return;
-  sayAuth('Refreshing balance…');
-  await fetchBackendQuota(currentUser);
-  sayAuth('Balance updated.');
-};
-
 const handleSignOut = async () => {
-  await signOutUser();
+  const fb = await getFirebaseMod();
+  await fb.signOutUser();
   sayAuth('Signed out.');
 };
-$('#signOutBtn').onclick = handleSignOut;
-$('#signOutVerify').onclick = handleSignOut;
 
 function triggerHeaderOrDrawerAuth() {
   closeDrawer(false);
@@ -1059,11 +1496,11 @@ function triggerHeaderOrDrawerAuth() {
     void handleSignOut();
     return;
   }
-  if (resolvePageId() !== 'tool') {
+  if (resolveRoute().pageId !== 'tool') {
     navigateToPage('tool', false);
   }
-  $('#authCard').scrollIntoView({ block: 'nearest' });
-  $('#googleSignIn').focus();
+  byId('authCard')?.scrollIntoView({ block: 'nearest' });
+  byId('googleSignIn')?.focus();
 }
 
 $('#headerAuthBtn').onclick = triggerHeaderOrDrawerAuth;
@@ -1105,11 +1542,107 @@ async function loadPublicSiteStatus() {
   }
 }
 
+/* ---- Lazy Mounting of Private Screens (#authVerifyBox, #converterWorkspace, #account) ---- */
+function mountSignedInScreensOnce() {
+  if (signedInScreensMounted) return;
+  const root = byId('appPrivateRoot');
+  if (!root) return;
+  root.innerHTML = `${VERIFY_BOX_HTML}\n${CONVERTER_WORKSPACE_HTML}`;
+  signedInScreensMounted = true;
+
+  byId('signOutVerify')?.addEventListener('click', () => {
+    void handleSignOut();
+  });
+
+  byId('resendVerify')?.addEventListener('click', async () => {
+    if (!currentUser) return;
+    try {
+      const fb = await getFirebaseMod();
+      await fb.resendVerificationEmail(currentUser);
+      sayAuth('Verification email sent again. Check your inbox or spam folder.');
+    } catch (err) {
+      sayAuth(formatAuthError(err));
+    }
+  });
+
+  byId('refreshVerify')?.addEventListener('click', async () => {
+    if (!currentUser) return;
+    try {
+      const fb = await getFirebaseMod();
+      await currentUser.reload();
+      if (fb.auth.currentUser?.emailVerified) {
+        await handleAuthUser(fb.auth.currentUser);
+        sayAuth('Email verified! Your 3,000 characters/day free allowance is now active.');
+      } else {
+        sayAuth('Your email is not verified yet. Open the link we sent to your inbox first.');
+      }
+    } catch (err) {
+      sayAuth(formatAuthError(err));
+    }
+  });
+
+  bindWorkspaceInteractionsOnce();
+  drawDict();
+  renderChaptersBox();
+
+  if (pendingEditorText) {
+    setText(pendingEditorText, currentTextOrigin);
+  }
+  if (pendingAudioTitle) {
+    setAudioTitleValue(pendingAudioTitle);
+  }
+  ui();
+}
+
+function unmountSignedInScreens() {
+  const root = byId('appPrivateRoot');
+  if (root) {
+    root.innerHTML = '';
+    root.hidden = true;
+  }
+  const accountMount = byId('accountMount');
+  if (accountMount) accountMount.innerHTML = '';
+  signedInScreensMounted = false;
+  workspaceEventsBound = false;
+}
+
+function mountAccountCardIntoOutlet() {
+  const accountMount = byId('accountMount');
+  if (!accountMount || !currentUser || !currentUser.emailVerified) return;
+  if (!byId('accountCard')) {
+    accountMount.innerHTML = ACCOUNT_CARD_HTML;
+    byId('signOutBtn')?.addEventListener('click', () => {
+      void handleSignOut();
+    });
+    byId('refreshQuota')?.addEventListener('click', async () => {
+      if (!currentUser) return;
+      sayAuth('Refreshing balance…');
+      await fetchBackendQuota(currentUser);
+      sayAuth('Balance updated.');
+    });
+    bindReferralUi();
+  }
+  const userDisp = byId('userDisplay');
+  if (userDisp) userDisp.textContent = currentUser.displayName || currentUser.email || 'Account';
+  const userMeta = byId('userAccountMeta');
+  if (userMeta) userMeta.textContent = currentUser.email ? `${currentUser.email} · 3,000 chars daily allowance` : '';
+  const refInput = byId<HTMLInputElement>('refLinkInput');
+  if (refInput) {
+    refInput.value = `${window.location.origin}/?ref=${encodeURIComponent(currentUser.uid)}`;
+  }
+  if (activeQuota) {
+    renderQuota(activeQuota);
+  }
+}
+
 async function handleAuthUser(user: User | null) {
+  authResolved = true;
   clearFirestoreListeners();
   currentUser = user;
   activeQuota = null;
   verifiedAdminSession = false;
+  adminDataLoaded = false;
+  const { unmountAdminPanel } = await import('./admin-panel');
   unmountAdminPanel();
 
   const headerUser = $('#headerUser');
@@ -1139,10 +1672,7 @@ async function handleAuthUser(user: User | null) {
   };
 
   if (!user) {
-    $('#authGate').hidden = false;
-    $('#authVerifyBox').hidden = true;
-    $('#converterWorkspace').hidden = true;
-    setVerifyPrompt(null);
+    unmountSignedInScreens();
     headerUser.hidden = true;
     headerUser.textContent = '';
     headerAdminBtn.hidden = true;
@@ -1152,13 +1682,14 @@ async function handleAuthUser(user: User | null) {
     drawerUser.textContent = '';
     drawerAuthBtn.textContent = 'Sign in to Converter';
     navAccountLink.hidden = true;
+    navAccountLink.textContent = '';
     navAdminLink.hidden = true;
     navAdminLink.textContent = '';
-    updateWorkspaceBalanceBar();
-    updateCounts();
     route(false);
     return;
   }
+
+  mountSignedInScreensOnce();
 
   const label = user.email || user.displayName || 'Account';
   headerUser.hidden = false;
@@ -1169,13 +1700,11 @@ async function handleAuthUser(user: User | null) {
   drawerAuthBtn.textContent = 'Sign out';
 
   if (!user.emailVerified) {
-    $('#authGate').hidden = true;
-    $('#authVerifyBox').hidden = false;
-    $('#converterWorkspace').hidden = true;
     setVerifyPrompt(user.email || 'your email address');
     headerAdminBtn.hidden = true;
     headerAdminBtn.textContent = '';
     navAccountLink.hidden = true;
+    navAccountLink.textContent = '';
     navAdminLink.hidden = true;
     navAdminLink.textContent = '';
     updateWorkspaceBalanceBar();
@@ -1185,29 +1714,25 @@ async function handleAuthUser(user: User | null) {
   }
 
   setVerifyPrompt(null);
-  const adminAuthorized = await verifyStrictAdmin(user);
+  const fb = await getFirebaseMod();
+  verifiedAdminUid = fb.ADMIN_UID;
+  const adminAuthorized = await fb.verifyStrictAdmin(user);
   verifiedAdminSession = adminAuthorized;
   navAccountLink.hidden = false;
+  navAccountLink.textContent = 'My Account';
   navAdminLink.hidden = !adminAuthorized;
   navAdminLink.textContent = adminAuthorized ? 'Admin Panel' : '';
   headerAdminBtn.hidden = !adminAuthorized;
   headerAdminBtn.textContent = adminAuthorized ? 'Admin Panel' : '';
 
-  $('#authGate').hidden = true;
-  $('#authVerifyBox').hidden = true;
-  $('#converterWorkspace').hidden = false;
-  $('#userDisplay').textContent = user.displayName || user.email || 'Account';
-  $('#userAccountMeta').textContent = user.email ? `${user.email} · 3,000 chars daily allowance` : '';
   updateWorkspaceBalanceBar();
-
-  const refInput = document.getElementById('refLinkInput') as HTMLInputElement | null;
-  if (refInput) {
-    refInput.value = `${window.location.origin}/?ref=${encodeURIComponent(user.uid)}`;
+  if (resolveRoute().pageId === 'account') {
+    mountAccountCardIntoOutlet();
   }
 
   try {
-    await ensureUserAndWallet(user);
-    walletUnsub = subscribeWallet(
+    await fb.ensureUserAndWallet(user);
+    walletUnsub = fb.subscribeWallet(
       user.uid,
       (w) => {
         if (w) renderWalletDoc(w);
@@ -1216,14 +1741,14 @@ async function handleAuthUser(user: User | null) {
         sayAuth('Could not sync live account balance. Using server tracker.');
       }
     );
-    ledgerUnsub = subscribeLedger(
+    ledgerUnsub = fb.subscribeLedger(
       user.uid,
       renderLedger,
       () => {
-        // Ignore live history error silently if offline
+        // Ignore offline error
       }
     );
-    refUnsub = subscribeMyReferrals(
+    refUnsub = fb.subscribeMyReferrals(
       user.uid,
       (rows) => {
         const granted = rows.filter((r) => r.bonusGranted).length;
@@ -1235,7 +1760,7 @@ async function handleAuthUser(user: User | null) {
         }
       },
       () => {
-        // Ignore live referral listener error if offline
+        // Ignore offline error
       }
     );
   } catch {
@@ -1256,1479 +1781,42 @@ async function handleAuthUser(user: User | null) {
       });
       const data = res.ok ? ((await res.json()) as { credited?: boolean; pending?: boolean }) : {};
       if (!res.ok || data.pending) {
-        await recordPendingReferralClient(user, pendingRef);
+        await fb.recordPendingReferralClient(user, pendingRef);
       }
       store.set('vs.pendingRef', '');
     } catch {
-      await recordPendingReferralClient(user, pendingRef);
+      await fb.recordPendingReferralClient(user, pendingRef);
       store.set('vs.pendingRef', '');
     }
   }
 
-  if (user.displayName && !$<HTMLInputElement>('#contactName').value.trim()) {
-    $<HTMLInputElement>('#contactName').value = user.displayName;
-  }
-  if (user.email && !$<HTMLInputElement>('#contactEmail').value.trim()) {
-    $<HTMLInputElement>('#contactEmail').value = user.email;
-  }
+  const cName = byId<HTMLInputElement>('contactName');
+  if (user.displayName && cName && !cName.value.trim()) cName.value = user.displayName;
+  const cEmail = byId<HTMLInputElement>('contactEmail');
+  if (user.email && cEmail && !cEmail.value.trim()) cEmail.value = user.email;
 
   await fetchBackendQuota(user);
 
-  if (adminAuthorized) {
-    mountAdminPanel();
+  if (adminAuthorized && resolveRoute().pageId === 'admin') {
+    const { mountAdminPanel } = await import('./admin-panel');
+    mountAdminPanel({
+      getCurrentUser: () => currentUser,
+      isAdminActive,
+      navigateToPage: (target, focus) => navigateToPage(target, focus),
+      fetchBackendQuota,
+      loadPublicSiteStatus,
+    });
   }
   route(false);
 }
 
-onAuthStateChanged(auth, (user) => {
-  authResolved = true;
-  void handleAuthUser(user);
-});
-
-/* ---- Admin Panel (Strictly Mounted Only for Verified Primary Admin) ---- */
-function unmountAdminPanel() {
-  adminDataLoaded = false;
-  const adminSection = document.getElementById('admin');
-  if (adminSection) {
-    adminSection.dataset.title = 'Workspace';
-    adminSection.dataset.description = '';
-  }
-  const headerAdminBtn = document.getElementById('headerAdminBtn');
-  if (headerAdminBtn) {
-    headerAdminBtn.hidden = true;
-    headerAdminBtn.textContent = '';
-  }
-  const navAdminLink = document.getElementById('navAdminLink');
-  if (navAdminLink) {
-    navAdminLink.hidden = true;
-    navAdminLink.textContent = '';
-  }
-  const mount = document.getElementById('adminMount');
-  if (mount) mount.innerHTML = '';
-}
-
-function mountAdminPanel() {
-  if (!isAdminActive(currentUser)) {
-    unmountAdminPanel();
-    return;
-  }
-  const adminSection = document.getElementById('admin');
-  if (adminSection) {
-    adminSection.dataset.title = 'Admin Panel';
-    adminSection.dataset.description = 'Administrator workspace';
-  }
-  const mount = $('#adminMount');
-  mount.innerHTML = `
-    <h1 tabindex="-1">Admin Panel</h1>
-    <p class="lead">Manage user accounts, credits, daily limits, activity history, and visitor messages.</p>
-    <div class="card" id="adminOverviewCard">
-      <div class="account-head">
-        <div>
-          <h2>Control Room Overview</h2>
-          <p class="account-meta">Manage API keys, hosting environment variables, limits, user accounts, roles, and visitor inbox from one place.</p>
-        </div>
-        <div class="btn-group compact-actions">
-          <button id="adminRefreshAll" type="button">Refresh All</button>
-        </div>
-      </div>
-
-      <div class="admin-meta-strip">
-        <span id="adminKeySourceBadge">Key source: Checking…</span>
-        <span aria-hidden="true">·</span>
-        <span id="adminVercelBadge">Vercel Auto-Push: Checking…</span>
-        <span aria-hidden="true">·</span>
-        <span id="adminMaintBadge">Mode: Checking…</span>
-        <span aria-hidden="true">·</span>
-        <span id="adminSyncBadge">Sync: Checking…</span>
-      </div>
-
-      <div class="quota-metrics">
-        <div class="quota-metric">
-          <span class="quota-label">User accounts</span>
-          <strong id="adminStatWallets">—</strong>
-        </div>
-        <div class="quota-metric">
-          <span class="quota-label">Total credits available</span>
-          <strong id="adminStatCredits">—</strong>
-        </div>
-        <div class="quota-metric">
-          <span class="quota-label">Characters used today</span>
-          <strong id="adminStatDaily">—</strong>
-        </div>
-        <div class="quota-metric">
-          <span class="quota-label">Unread messages</span>
-          <strong id="adminStatUnread">—</strong>
-        </div>
-      </div>
-      <p id="adminOverviewMsg" class="hint" role="status" aria-live="polite"></p>
-    </div>
-
-    <div class="card" id="adminServerConfigCard">
-      <h2>Server API Key, Limits &amp; Direct Vercel Env Push</h2>
-      <p class="hint">Paste a Gemini API key (free or paid) and press <strong>Save &amp; Push API Key to Server</strong>. It pushes straight to your backend &amp; Vercel environment variables and clears immediately from this input—leaving your personal browser key in Step 1 untouched.</p>
-      <p class="hint" id="adminMaskedKeysInfo">Active Admin Key: Loading… · Host Env Key: Loading…</p>
-
-      <label for="adminCfgApiKey">Shared Server Gemini API Key (leave blank to keep current server key)</label>
-      <div class="input-inline-row">
-        <input id="adminCfgApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… paste new Gemini key to push straight to server">
-        <button id="adminToggleKeyVis" type="button" class="sec">Show</button>
-      </div>
-
-      <div class="row">
-        <div>
-          <label for="adminCfgDailyLimit">Default Daily Free Characters per User</label>
-          <input id="adminCfgDailyLimit" type="number" min="0" max="1000000" value="3000">
-        </div>
-        <div>
-          <label for="adminCfgGlobalCap">Global Daily Free Character Cap</label>
-          <input id="adminCfgGlobalCap" type="number" min="0" max="100000000" value="100000">
-        </div>
-      </div>
-
-      <label for="adminCfgNotice">Public Site Announcement / Maintenance Notice</label>
-      <input id="adminCfgNotice" type="text" maxlength="400" placeholder="Optional banner shown at the top of the app">
-
-      <label class="inline-check">
-        <input id="adminCfgMaintenance" type="checkbox">
-        <span>Maintenance mode (pause shared speech &amp; studio API for standard users)</span>
-      </label>
-      <label class="inline-check">
-        <input id="adminCfgPdfStudio" type="checkbox" checked>
-        <span>Enable AI PDF &amp; Book Chapter Studio proxy for users</span>
-      </label>
-      <label class="inline-check">
-        <input id="adminCfgPodcastStudio" type="checkbox" checked>
-        <span>Enable Podcast &amp; Translator Studio proxy for users</span>
-      </label>
-
-      <div class="btn-group">
-        <button id="adminSaveServerBtn" type="button">Save &amp; Push API Key to Server</button>
-        <button id="adminTestKeyBtn" type="button" class="sec">Test Key Now</button>
-        <button id="adminClearKeyBtn" type="button" class="dng">Clear Admin Key (Revert to Host Env)</button>
-      </div>
-      <p id="adminServerMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
-      <p id="adminServerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-
-      <details class="panel" id="adminVercelDetails">
-        <summary>Vercel Auto-Push Connection (One-Time Setup)</summary>
-        <p class="hint">Connect your Vercel Project ID and Access Token once here. Whenever you press <strong>Save &amp; Push API Key to Server</strong>, Voice Studio automatically updates <code>GEMINI_API_KEY</code> and triggers a live production redeploy with no Vercel dashboard visits required.</p>
-        <div class="row">
-          <div>
-            <label for="adminVercelProject">Vercel Project ID or Name</label>
-            <input id="adminVercelProject" type="text" autocomplete="off" placeholder="prj_... or voice-studio">
-          </div>
-          <div>
-            <label for="adminVercelTeam">Vercel Team ID (optional)</label>
-            <input id="adminVercelTeam" type="text" autocomplete="off" placeholder="team_... (leave blank for personal account)">
-          </div>
-        </div>
-        <label for="adminVercelToken">Vercel API Access Token</label>
-        <input id="adminVercelToken" type="password" autocomplete="off" spellcheck="false" placeholder="Optional once saved on server">
-        <label for="adminVercelHook">Vercel Deploy Hook URL (optional—auto-redeploy works even without this)</label>
-        <input id="adminVercelHook" type="url" autocomplete="off" placeholder="https://api.vercel.com/v1/integrations/deploy/...">
-        <label class="inline-check">
-          <input id="adminVercelPersist" type="checkbox" checked>
-          <span>Save Vercel Project ID &amp; Token securely into Vercel Environment Variables on push (so you never enter them again)</span>
-        </label>
-        <div class="btn-group">
-          <button id="adminPushVercelBtn" type="button" class="sec">Push Key &amp; Connect Vercel Now</button>
-        </div>
-        <p id="adminVercelMsg" class="hint" role="status" aria-live="polite"></p>
-        <p id="adminVercelErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      </details>
-    </div>
-
-    <div class="card" id="adminCard">
-      <h2>Users, Wallets, Roles &amp; Credits</h2>
-      <p class="hint">Search for any user, view registered accounts and roles, reset today's daily usage, grant credits, or assign Co-Admin access.</p>
-      <div class="row">
-        <div>
-          <label for="adminSearchInput">Find user by Email or Account ID</label>
-          <input id="adminSearchInput" type="text" placeholder="user@example.com or Account ID">
-        </div>
-      </div>
-      <div class="btn-group">
-        <button id="adminFindBtn" type="button" class="sec">Search user</button>
-        <button id="adminLoadUsers" type="button" class="sec">Show all users</button>
-        <button id="adminLoadProfiles" type="button" class="sec">Show profiles &amp; roles</button>
-      </div>
-      <div class="admin-table-wrap" id="adminTableWrap" hidden>
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th scope="col">Email</th>
-              <th scope="col">Account ID</th>
-              <th scope="col">Plan</th>
-              <th scope="col">Used Today</th>
-              <th scope="col">Total Used</th>
-              <th scope="col">Credits</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="adminUsersBody"></tbody>
-        </table>
-      </div>
-      <div class="admin-table-wrap" id="adminProfilesWrap" hidden>
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Email</th>
-              <th scope="col">Account ID</th>
-              <th scope="col">Role</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="adminProfilesBody"></tbody>
-        </table>
-      </div>
-
-      <hr class="divider">
-
-      <h3>Update Credits &amp; Daily Limit</h3>
-      <div class="row">
-        <div>
-          <label for="adminUid">Selected User (Email or Account ID)</label>
-          <input id="adminUid" type="text" placeholder="Choose a user above or enter Email / ID">
-        </div>
-        <div>
-          <label for="adminAddCredits">Add or Remove Credits (characters)</label>
-          <input id="adminAddCredits" type="number" value="10000" step="1000">
-        </div>
-      </div>
-      <div class="btn-group">
-        <button type="button" class="sec admin-preset-credit" data-credits="10000">+10,000</button>
-        <button type="button" class="sec admin-preset-credit" data-credits="50000">+50,000</button>
-        <button type="button" class="sec admin-preset-credit" data-credits="100000">+100,000</button>
-        <button type="button" class="sec admin-preset-credit" data-credits="0">0 (Limit / Plan only)</button>
-      </div>
-      <div class="row">
-        <div>
-          <label for="adminDailyLimit">Daily Free Limit</label>
-          <input id="adminDailyLimit" type="number" value="3000" min="0" max="1000000">
-        </div>
-        <div>
-          <label for="adminPlan">Plan</label>
-          <select id="adminPlan">
-            <option value="free">Free</option>
-            <option value="pro">Extended</option>
-          </select>
-        </div>
-      </div>
-      <label for="adminNote">Reason / Note</label>
-      <input id="adminNote" type="text" maxlength="240" placeholder="Reason for adding credits or changing limit">
-      <div class="btn-group">
-        <button id="adminApply" type="button">Save Changes</button>
-      </div>
-
-      <details class="panel">
-        <summary>Bulk Credit Grant (All Loaded User Accounts)</summary>
-        <div class="row">
-          <div>
-            <label for="adminBulkCredits">Bonus Credits per Account</label>
-            <input id="adminBulkCredits" type="number" value="5000" step="1000">
-          </div>
-          <div>
-            <label for="adminBulkNote">Campaign Note</label>
-            <input id="adminBulkNote" type="text" maxlength="240" value="Community appreciation bonus credits">
-          </div>
-        </div>
-        <div class="btn-group">
-          <button id="adminBulkGrantBtn" type="button" class="sec">Grant Bonus to All Active Accounts</button>
-        </div>
-      </details>
-
-      <p id="adminMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
-      <p id="adminErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-    </div>
-
-    <div class="card" id="adminLedgerCard">
-      <h2>Activity History</h2>
-      <p class="hint">See recent credit changes, quota updates, and audio generations across all user accounts.</p>
-      <div class="row">
-        <div>
-          <label for="adminLedgerFilter">Filter by User or Note</label>
-          <input id="adminLedgerFilter" type="text" placeholder="Type email, user ID, or note">
-        </div>
-        <div>
-          <label for="adminLedgerType">Activity Type</label>
-          <select id="adminLedgerType">
-            <option value="all">All activity</option>
-            <option value="admin_grant">Admin updates</option>
-            <option value="credit_purchase">Credits added</option>
-            <option value="tts_usage">Audio generated</option>
-          </select>
-        </div>
-      </div>
-      <div class="btn-group">
-        <button id="adminLoadLedger" type="button" class="sec">Load Recent History</button>
-        <button id="adminExportCsvBtn" type="button" class="sec">Export Filtered CSV</button>
-      </div>
-      <p id="adminLedgerMsg" class="hint" role="status" aria-live="polite"></p>
-      <p id="adminLedgerErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      <div class="admin-table-wrap" id="adminLedgerWrap" hidden>
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th scope="col">Time</th>
-              <th scope="col">User</th>
-              <th scope="col">Activity</th>
-              <th scope="col">Credits</th>
-              <th scope="col">Characters</th>
-              <th scope="col">Voice Model</th>
-              <th scope="col">Note</th>
-            </tr>
-          </thead>
-          <tbody id="adminLedgerBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card" id="adminReferralsCard">
-      <h2>Referral Invites</h2>
-      <p class="hint">Monitor friend invites and grant pending 2,000-character invite bonuses if automatic crediting is inactive.</p>
-      <div class="btn-group">
-        <button id="adminLoadReferrals" type="button" class="sec">Load Referrals</button>
-      </div>
-      <p id="adminRefMsg" class="hint" role="status" aria-live="polite"></p>
-      <p id="adminRefErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      <div class="admin-table-wrap" id="adminRefWrap" hidden>
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th scope="col">Invited User ID</th>
-              <th scope="col">Referrer User ID</th>
-              <th scope="col">Status</th>
-              <th scope="col">Action</th>
-            </tr>
-          </thead>
-          <tbody id="adminRefBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card" id="adminInboxCard">
-      <h2>Contact Messages</h2>
-      <p class="hint">Read and manage messages sent by visitors from the Contact page.</p>
-      <div class="btn-group">
-        <button id="adminLoadInbox" type="button" class="sec">Load Messages</button>
-        <button id="adminUnreadOnly" type="button" class="sec" aria-pressed="false">Show unread only</button>
-      </div>
-      <p id="adminInboxMsg" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
-      <p id="adminInboxErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      <ul class="inbox-list" id="adminInboxList"></ul>
-    </div>
-
-    <div class="card" id="adminHealthCard">
-      <h2>Server &amp; Integration Diagnostics</h2>
-      <p class="hint" id="adminSessionIdentity"></p>
-      <p class="hint" id="adminDiagDetails">Service account: Checking… · Edge KV: Checking… · Vercel Env: Checking…</p>
-      <p class="hint" id="adminSystemStatus" role="status" aria-live="polite">Press Check Server Status to verify that speech generation is ready.</p>
-      <div class="btn-group">
-        <button id="adminCheckHealth" type="button" class="sec">Check Server Status</button>
-      </div>
-    </div>
-    <div class="btn-group">
-      <button id="adminBackToStudioBtn" type="button" class="sec">Back to Speech Studio</button>
-    </div>
-  `;
-
-  document.getElementById('adminBackToStudioBtn')?.addEventListener('click', () => {
-    navigateToPage('tool', true);
-  });
-
-  let cachedWallets: Array<{ docId: string; wallet: UserWalletDoc }> = [];
-  let cachedLedger: LedgerEntryDoc[] = [];
-  let cachedFilteredLedger: LedgerEntryDoc[] = [];
-  let cachedInbox: ContactMessageDoc[] = [];
-  let cachedServerSummary: Awaited<ReturnType<typeof adminGetServerConfig>> = null;
-  let unreadOnlyFilter = false;
-  let pendingDeleteId: string | null = null;
-
-  const formatActivityLabel = (type: LedgerEntryDoc['type']): string => {
-    if (type === 'credit_purchase') return 'Credits added';
-    if (type === 'tts_usage') return 'Audio generated';
-    return 'Admin update';
-  };
-
-  $('#adminSessionIdentity').textContent =
-    `Signed in as verified primary admin (${currentUser?.email || ''}). Access is restricted strictly to this account.`;
-
-  const formatUiError = (err: unknown, fallback: string): string => {
-    const raw = err instanceof Error ? err.message : String(err || '');
-    if (raw.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(raw) as { error?: string };
-        if (parsed.error) return parsed.error;
-      } catch {
-        // Fall through
-      }
-    }
-    return raw || fallback;
-  };
-  const setAdminStatus = (msg: string) => {
-    $('#adminErr').textContent = '';
-    $('#adminMsg').textContent = msg;
-  };
-  const setAdminError = (msg: string) => {
-    $('#adminMsg').textContent = '';
-    $('#adminErr').textContent = msg;
-  };
-  const setServerStatus = (msg: string) => {
-    $('#adminServerErr').textContent = '';
-    $('#adminServerMsg').textContent = msg;
-  };
-  const setServerError = (msg: string) => {
-    $('#adminServerMsg').textContent = '';
-    $('#adminServerErr').textContent = msg;
-  };
-  const setVercelStatus = (msg: string) => {
-    $('#adminVercelErr').textContent = '';
-    $('#adminVercelMsg').textContent = msg;
-  };
-  const setVercelError = (msg: string) => {
-    $('#adminVercelMsg').textContent = '';
-    $('#adminVercelErr').textContent = msg;
-  };
-
-  const maskShort = (raw: string): string => {
-    const s = raw.trim();
-    if (!s) return 'Not set';
-    return s.length <= 8 ? '••••' : `${s.slice(0, 6)}••••${s.slice(-4)}`;
-  };
-
-  const applyServerBadges = (data: {
-    keySource?: string;
-    adminKeyMasked?: string;
-    envKeyMasked?: string;
-    dailyFreeCharLimit?: number;
-    globalDailyFreeChars?: number;
-    maintenanceMode?: boolean;
-    siteNotice?: string;
-    allowPdfStudio?: boolean;
-    allowPodcastStudio?: boolean;
-    serviceAccountConfigured?: boolean;
-    kvConfigured?: boolean;
-    vercelEnvConfigured?: boolean;
-  }) => {
-    const srcLabel =
-      data.keySource === 'admin' ? 'Admin Panel Key' : data.keySource === 'env' ? 'Host Env Var' : 'None Configured';
-    $('#adminKeySourceBadge').textContent = `Key source: ${srcLabel}`;
-    if (typeof data.vercelEnvConfigured === 'boolean') {
-      $('#adminVercelBadge').textContent = data.vercelEnvConfigured
-        ? 'Vercel Auto-Push: Connected'
-        : 'Vercel Auto-Push: Setup once below';
-    }
-    $('#adminMaintBadge').textContent = data.maintenanceMode ? 'Mode: Maintenance PAUSED' : 'Mode: Live Active';
-    $('#adminMaskedKeysInfo').textContent =
-      `Active Admin Key: ${data.adminKeyMasked || 'Not set'} · Host Env Key: ${data.envKeyMasked || 'Not set'}`;
-    $('#adminDiagDetails').textContent =
-      `Service account: ${data.serviceAccountConfigured ? 'Ready' : 'Not set'} · Edge KV: ${data.kvConfigured ? 'Connected' : 'Memory only'} · Vercel Auto-Push: ${data.vercelEnvConfigured ? 'Connected' : 'Setup once above'}`;
-    if (typeof data.dailyFreeCharLimit === 'number') {
-      $<HTMLInputElement>('#adminCfgDailyLimit').value = String(data.dailyFreeCharLimit);
-    }
-    if (typeof data.globalDailyFreeChars === 'number') {
-      $<HTMLInputElement>('#adminCfgGlobalCap').value = String(data.globalDailyFreeChars);
-    }
-    if (typeof data.siteNotice === 'string') {
-      $<HTMLInputElement>('#adminCfgNotice').value = data.siteNotice;
-    }
-    if (typeof data.maintenanceMode === 'boolean') {
-      $<HTMLInputElement>('#adminCfgMaintenance').checked = data.maintenanceMode;
-    }
-    if (typeof data.allowPdfStudio === 'boolean') {
-      $<HTMLInputElement>('#adminCfgPdfStudio').checked = data.allowPdfStudio;
-    }
-    if (typeof data.allowPodcastStudio === 'boolean') {
-      $<HTMLInputElement>('#adminCfgPodcastStudio').checked = data.allowPodcastStudio;
-    }
-  };
-
-  const loadServerConfig = async () => {
-    try {
-      if (!currentUser) return;
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/admin-config', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = (await res.json()) as Parameters<typeof applyServerBadges>[0];
-        $('#adminSyncBadge').textContent =
-          data.kvConfigured || data.serviceAccountConfigured ? 'Sync: Server + DB Ready' : 'Sync: Runtime Memory';
-        applyServerBadges(data);
-        return;
-      }
-
-      cachedServerSummary = await adminGetServerConfig().catch(() => null);
-      if (cachedServerSummary) {
-        $('#adminSyncBadge').textContent = 'Sync: Firestore only (API offline)';
-        applyServerBadges({
-          keySource: cachedServerSummary.hasGeminiApiKey ? 'admin' : 'env',
-          adminKeyMasked: cachedServerSummary.geminiApiKeyMasked,
-          dailyFreeCharLimit: cachedServerSummary.dailyFreeCharLimit,
-          globalDailyFreeChars: cachedServerSummary.globalDailyFreeChars,
-          maintenanceMode: cachedServerSummary.maintenanceMode,
-          siteNotice: cachedServerSummary.siteNotice,
-          allowPdfStudio: cachedServerSummary.allowPdfStudio,
-          allowPodcastStudio: cachedServerSummary.allowPodcastStudio,
-        });
-      } else {
-        $('#adminSyncBadge').textContent = 'Sync: Check server';
-      }
-    } catch (err) {
-      setServerError(formatUiError(err, 'Could not load server runtime config.'));
-    }
-  };
-
-  $('#adminToggleKeyVis').onclick = () => {
-    const inp = $<HTMLInputElement>('#adminCfgApiKey');
-    const btn = $<HTMLButtonElement>('#adminToggleKeyVis');
-    const isHidden = inp.type === 'password';
-    inp.type = isHidden ? 'text' : 'password';
-    btn.textContent = isHidden ? 'Hide' : 'Show';
-  };
-
-  $('#adminTestKeyBtn').onclick = async () => {
-    if (!currentUser) return;
-    const btn = $<HTMLButtonElement>('#adminTestKeyBtn');
-    const candidate = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
-    btn.disabled = true;
-    setServerStatus('Testing Gemini API key against Google servers…');
-    try {
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/admin-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'test_key',
-          geminiApiKey: candidate || undefined,
-        }),
-      });
-      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string };
-      if (!res.ok || !data.ok) {
-        setServerError(data.error || 'Key verification failed.');
-      } else {
-        setServerStatus(data.message || 'Gemini API key verified successfully.');
-      }
-    } catch (err) {
-      setServerError(formatUiError(err, 'Could not reach server to test API key.'));
-    } finally {
-      btn.disabled = false;
-    }
-  };
-
-  const commitServerSettings = async (clearKey: boolean) => {
-    if (!currentUser) return;
-    const saveBtn = $<HTMLButtonElement>('#adminSaveServerBtn');
-    const clearBtn = $<HTMLButtonElement>('#adminClearKeyBtn');
-    const typedKey = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
-    const dailyFreeCharLimit = Math.max(
-      0,
-      Math.min(1000000, parseInt($<HTMLInputElement>('#adminCfgDailyLimit').value, 10) || 3000)
-    );
-    const globalDailyFreeChars = Math.max(
-      0,
-      Math.min(100000000, parseInt($<HTMLInputElement>('#adminCfgGlobalCap').value, 10) || 100000)
-    );
-    const maintenanceMode = $<HTMLInputElement>('#adminCfgMaintenance').checked;
-    const allowPdfStudio = $<HTMLInputElement>('#adminCfgPdfStudio').checked;
-    const allowPodcastStudio = $<HTMLInputElement>('#adminCfgPodcastStudio').checked;
-    const siteNotice = $<HTMLInputElement>('#adminCfgNotice').value.trim().slice(0, 400);
-    const vercelProject = $<HTMLInputElement>('#adminVercelProject').value.trim();
-    const vercelTeamId = $<HTMLInputElement>('#adminVercelTeam').value.trim();
-    const vercelToken = $<HTMLInputElement>('#adminVercelToken').value.trim();
-    const deployHookUrl = $<HTMLInputElement>('#adminVercelHook').value.trim();
-    const persistVercelConnection = $<HTMLInputElement>('#adminVercelPersist').checked;
-
-    saveBtn.disabled = true;
-    clearBtn.disabled = true;
-    setServerStatus(clearKey ? 'Clearing admin API key and saving settings…' : 'Pushing API key & settings to server…');
-
-    try {
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/admin-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'save_config',
-          clearApiKey: clearKey,
-          geminiApiKey: clearKey ? '' : typedKey || '__KEEP__',
-          dailyFreeCharLimit,
-          globalDailyFreeChars,
-          maintenanceMode,
-          siteNotice,
-          allowPdfStudio,
-          allowPodcastStudio,
-          pushToVercel: !clearKey,
-          vercelProject: vercelProject || undefined,
-          vercelTeamId: vercelTeamId || undefined,
-          vercelToken: vercelToken || undefined,
-          deployHookUrl: deployHookUrl || undefined,
-          persistVercelConnection,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        persistedToKv?: boolean;
-        persistedToFirestore?: boolean;
-        vercelPushed?: boolean;
-        redeployTriggered?: boolean;
-        vercelError?: string;
-      } & Parameters<typeof applyServerBadges>[0];
-
-      if (res.status !== 404 && (!res.ok || !data.ok)) {
-        setServerError(data.error || 'Could not save server configuration.');
-        return;
-      }
-
-      // Immediately clear secret inputs from the browser
-      $<HTMLInputElement>('#adminCfgApiKey').value = '';
-      $<HTMLInputElement>('#adminCfgApiKey').type = 'password';
-      $('#adminToggleKeyVis').textContent = 'Show';
-      $<HTMLInputElement>('#adminVercelToken').value = '';
-
-      if (!(res.ok && data.ok && data.persistedToFirestore)) {
-        await adminSaveServerConfig({
-          geminiApiKey: clearKey ? '' : typedKey,
-          preserveExistingKey: !clearKey && !typedKey,
-          dailyFreeCharLimit,
-          globalDailyFreeChars,
-          maintenanceMode,
-          siteNotice,
-          allowPdfStudio,
-          allowPodcastStudio,
-          updatedBy: currentUser.email || 'moutther580@gmail.com',
-        });
-      }
-      cachedServerSummary = await adminGetServerConfig().catch(() => cachedServerSummary);
-
-      if (res.ok && data.ok) {
-        applyServerBadges(data);
-        if (clearKey) {
-          setServerStatus('Admin override key cleared from server and reverted cleanly to Host Env key.');
-        } else if (data.vercelPushed) {
-          setServerStatus(
-            data.redeployTriggered
-              ? 'Pushed directly to backend & Vercel Env, triggered live production redeploy, and cleared from browser input.'
-              : 'Pushed directly to backend & Vercel Env and cleared from browser input.'
-          );
-        } else if (data.vercelError) {
-          setServerStatus('Saved & activated live on backend and cleared from browser input.');
-          setVercelError(data.vercelError);
-        } else {
-          setServerStatus('Saved & activated on backend, synced to Firestore, and cleared from browser input.');
-        }
-      } else {
-        const maskedFallback = clearKey
-          ? 'Not set'
-          : typedKey
-            ? maskShort(typedKey)
-            : cachedServerSummary?.geminiApiKeyMasked || 'Not set';
-        applyServerBadges({
-          keySource: clearKey ? 'env' : typedKey || cachedServerSummary?.hasGeminiApiKey ? 'admin' : 'env',
-          adminKeyMasked: maskedFallback,
-          dailyFreeCharLimit,
-          globalDailyFreeChars,
-          maintenanceMode,
-          siteNotice,
-          allowPdfStudio,
-          allowPodcastStudio,
-        });
-        setServerStatus('Saved configuration to Firestore and cleared from browser input.');
-      }
-
-      await loadPublicSiteStatus();
-      await fetchBackendQuota(currentUser);
-      await checkHealth();
-    } catch (err) {
-      setServerError(formatUiError(err, 'Could not save server configuration.'));
-    } finally {
-      saveBtn.disabled = false;
-      clearBtn.disabled = false;
-    }
-  };
-
-  $('#adminSaveServerBtn').onclick = () => {
-    void commitServerSettings(false);
-  };
-  $('#adminClearKeyBtn').onclick = () => {
-    void commitServerSettings(true);
-  };
-
-  $('#adminPushVercelBtn').onclick = async () => {
-    if (!currentUser) return;
-    const btn = $<HTMLButtonElement>('#adminPushVercelBtn');
-    const typedKey = $<HTMLInputElement>('#adminCfgApiKey').value.trim();
-    const dailyFreeCharLimit = Math.max(
-      0,
-      Math.min(1000000, parseInt($<HTMLInputElement>('#adminCfgDailyLimit').value, 10) || 3000)
-    );
-    const globalDailyFreeChars = Math.max(
-      0,
-      Math.min(100000000, parseInt($<HTMLInputElement>('#adminCfgGlobalCap').value, 10) || 100000)
-    );
-    const vercelProject = $<HTMLInputElement>('#adminVercelProject').value.trim();
-    const vercelTeamId = $<HTMLInputElement>('#adminVercelTeam').value.trim();
-    const vercelToken = $<HTMLInputElement>('#adminVercelToken').value.trim();
-    const deployHookUrl = $<HTMLInputElement>('#adminVercelHook').value.trim();
-    const persistVercelConnection = $<HTMLInputElement>('#adminVercelPersist').checked;
-
-    btn.disabled = true;
-    setVercelStatus('Pushing environment variables directly to Vercel…');
-    try {
-      const token = await currentUser.getIdToken();
-      const res = await fetch('/api/admin-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'push_vercel_env',
-          geminiApiKey: typedKey || undefined,
-          dailyFreeCharLimit,
-          globalDailyFreeChars,
-          vercelProject: vercelProject || undefined,
-          vercelTeamId: vercelTeamId || undefined,
-          vercelToken: vercelToken || undefined,
-          deployHookUrl: deployHookUrl || undefined,
-          persistVercelConnection,
-        }),
-      });
-      const data = (await res.json()) as { ok?: boolean; message?: string; error?: string; maskedKey?: string };
-      if (!res.ok || !data.ok) {
-        setVercelError(data.error || 'Could not push environment variables to Vercel.');
-        return;
-      }
-      $<HTMLInputElement>('#adminVercelToken').value = '';
-      $<HTMLInputElement>('#adminCfgApiKey').value = '';
-      $<HTMLInputElement>('#adminCfgApiKey').type = 'password';
-      $('#adminToggleKeyVis').textContent = 'Show';
-      if (typedKey) {
-        await adminSaveServerConfig({
-          geminiApiKey: typedKey,
-          dailyFreeCharLimit,
-          globalDailyFreeChars,
-          maintenanceMode: $<HTMLInputElement>('#adminCfgMaintenance').checked,
-          siteNotice: $<HTMLInputElement>('#adminCfgNotice').value.trim(),
-          allowPdfStudio: $<HTMLInputElement>('#adminCfgPdfStudio').checked,
-          allowPodcastStudio: $<HTMLInputElement>('#adminCfgPodcastStudio').checked,
-          updatedBy: currentUser.email || 'moutther580@gmail.com',
-        }).catch(() => {});
-      }
-      setVercelStatus(data.message || 'Environment variables pushed directly to Vercel and cleared from browser.');
-      await loadServerConfig();
-      await loadPublicSiteStatus();
-    } catch (err) {
-      setVercelError(formatUiError(err, 'Could not reach server to push Vercel environment variables.'));
-    } finally {
-      btn.disabled = false;
-    }
-  };
-
-  mount.querySelectorAll<HTMLButtonElement>('.admin-preset-credit').forEach((btn) => {
-    btn.onclick = () => {
-      const val = btn.dataset.credits || '0';
-      $<HTMLInputElement>('#adminAddCredits').value = val;
-      setAdminStatus(`Credit amount set to ${Number(val).toLocaleString()} characters.`);
-    };
-  });
-
-  const updateWalletOverview = (wallets: Array<{ docId: string; wallet: UserWalletDoc }>) => {
-    cachedWallets = wallets;
-    const today = new Date().toISOString().slice(0, 10);
-    const totalCredits = wallets.reduce((acc, item) => acc + (item.wallet.paidCredits || 0), 0);
-    const totalDaily = wallets.reduce(
-      (acc, item) => acc + (item.wallet.dailyDate === today ? item.wallet.dailyUsedChars || 0 : 0),
-      0
-    );
-    $('#adminStatWallets').textContent = wallets.length.toLocaleString();
-    $('#adminStatCredits').textContent = totalCredits.toLocaleString();
-    $('#adminStatDaily').textContent = totalDaily.toLocaleString();
-  };
-
-  const renderLedgerTable = () => {
-    const filterText = $<HTMLInputElement>('#adminLedgerFilter').value.trim().toLowerCase();
-    const typeFilter = $<HTMLSelectElement>('#adminLedgerType').value;
-    const filtered = cachedLedger.filter((entry) => {
-      if (typeFilter !== 'all' && entry.type !== typeFilter) return false;
-      if (!filterText) return true;
-      return (
-        entry.uid.toLowerCase().includes(filterText) ||
-        entry.note.toLowerCase().includes(filterText) ||
-        entry.model.toLowerCase().includes(filterText)
-      );
-    });
-    cachedFilteredLedger = filtered;
-
-    const tbody = $('#adminLedgerBody');
-    tbody.innerHTML = '';
-    for (const e of filtered) {
-      const tr = document.createElement('tr');
-      const tdTime = document.createElement('td');
-      tdTime.textContent = e.createdAt?.toDate?.()?.toLocaleString() || 'Recent';
-      const tdUid = document.createElement('td');
-      tdUid.textContent = e.uid;
-      const tdType = document.createElement('td');
-      tdType.textContent = formatActivityLabel(e.type);
-      const tdDelta = document.createElement('td');
-      tdDelta.textContent = `${e.creditsDelta > 0 ? '+' : ''}${e.creditsDelta.toLocaleString()}`;
-      const tdChars = document.createElement('td');
-      tdChars.textContent = e.chars.toLocaleString();
-      const tdModel = document.createElement('td');
-      tdModel.textContent = e.model === 'admin-portal' ? 'Admin Panel' : e.model || '—';
-      const tdNote = document.createElement('td');
-      tdNote.textContent = e.note || '—';
-      tr.append(tdTime, tdUid, tdType, tdDelta, tdChars, tdModel, tdNote);
-      tbody.appendChild(tr);
-    }
-    $('#adminLedgerWrap').hidden = filtered.length === 0;
-    $('#adminLedgerMsg').textContent = `Showing ${filtered.length} of ${cachedLedger.length} recent record(s).`;
-  };
-
-  const loadLedger = async () => {
-    $('#adminLedgerErr').textContent = '';
-    $('#adminLedgerMsg').textContent = 'Loading recent history…';
-    try {
-      cachedLedger = await adminListRecentLedger();
-      renderLedgerTable();
-    } catch (err) {
-      $('#adminLedgerMsg').textContent = '';
-      $('#adminLedgerErr').textContent = formatUiError(err, 'Could not load activity history.');
-    }
-  };
-
-  const renderWalletRows = (wallets: Array<{ docId: string; wallet: UserWalletDoc }>, focusGrantDocId?: string) => {
-    const tbody = $('#adminUsersBody');
-    tbody.innerHTML = '';
-    for (const { docId, wallet: w } of wallets) {
-      const tr = document.createElement('tr');
-
-      const tdEmail = document.createElement('td');
-      tdEmail.textContent = w.email;
-      const tdId = document.createElement('td');
-      tdId.textContent = docId;
-      const tdPlan = document.createElement('td');
-      tdPlan.textContent = w.plan === 'pro' ? 'Extended' : 'Free';
-      const tdDaily = document.createElement('td');
-      tdDaily.textContent = `${w.dailyUsedChars.toLocaleString()}/${w.dailyLimit.toLocaleString()}`;
-      const tdLifetime = document.createElement('td');
-      tdLifetime.textContent = (w.totalCharsUsed || 0).toLocaleString();
-      const tdPaid = document.createElement('td');
-      tdPaid.textContent = w.paidCredits.toLocaleString();
-
-      const tdAct = document.createElement('td');
-      const wrap = document.createElement('div');
-      wrap.className = 'admin-row-actions';
-
-      const selBtn = document.createElement('button');
-      selBtn.type = 'button';
-      selBtn.className = 'sec';
-      selBtn.textContent = 'Select';
-      selBtn.setAttribute('aria-label', `Select account for ${w.email}`);
-      selBtn.onclick = () => {
-        $<HTMLInputElement>('#adminUid').value = docId;
-        $<HTMLInputElement>('#adminDailyLimit').value = String(w.dailyLimit);
-        $<HTMLSelectElement>('#adminPlan').value = w.plan;
-        setAdminStatus(`Selected ${w.email}. Current credits: ${w.paidCredits.toLocaleString()}.`);
-        $('#adminAddCredits').focus();
-      };
-
-      const quickGrantBtn = document.createElement('button');
-      quickGrantBtn.type = 'button';
-      quickGrantBtn.className = 'sec';
-      quickGrantBtn.textContent = '+10k';
-      quickGrantBtn.setAttribute('aria-label', `Add 10,000 credits to ${w.email}`);
-      quickGrantBtn.dataset.grantDoc = docId;
-      quickGrantBtn.onclick = async () => {
-        setAdminStatus(`Adding 10,000 credits to ${w.email}…`);
-        try {
-          const updated = await adminGrantCredits(
-            docId,
-            10000,
-            w.dailyLimit,
-            w.plan,
-            'Added 10,000 credits from Admin Panel'
-          );
-          setAdminStatus(`Added 10,000 credits to ${updated.email}. New balance: ${updated.paidCredits.toLocaleString()}.`);
-          const refreshed = await adminListWallets();
-          updateWalletOverview(refreshed);
-          renderWalletRows(refreshed, docId);
-          if (cachedLedger.length) await loadLedger();
-          if (updated.uid === currentUser?.uid || updated.email === currentUser?.email) {
-            await fetchBackendQuota(currentUser);
-          }
-        } catch (err) {
-          setAdminError(formatUiError(err, 'Could not add credits.'));
-        }
-      };
-
-      const resetTodayBtn = document.createElement('button');
-      resetTodayBtn.type = 'button';
-      resetTodayBtn.className = 'sec';
-      resetTodayBtn.textContent = 'Reset Today';
-      resetTodayBtn.setAttribute('aria-label', `Reset today's usage to 0 for ${w.email}`);
-      resetTodayBtn.onclick = async () => {
-        setAdminStatus(`Resetting today's usage for ${w.email}…`);
-        try {
-          await adminResetUserDailyUsage(docId, w.email);
-          setAdminStatus(`Reset today's character usage to 0 for ${w.email}.`);
-          const refreshed = await adminListWallets();
-          updateWalletOverview(refreshed);
-          renderWalletRows(refreshed, docId);
-          if (cachedLedger.length) await loadLedger();
-          if (docId === currentUser?.uid || w.email === currentUser?.email) {
-            await fetchBackendQuota(currentUser);
-          }
-        } catch (err) {
-          setAdminError(formatUiError(err, 'Could not reset daily usage.'));
-        }
-      };
-
-      const ledgerBtn = document.createElement('button');
-      ledgerBtn.type = 'button';
-      ledgerBtn.className = 'sec';
-      ledgerBtn.textContent = 'History';
-      ledgerBtn.setAttribute('aria-label', `View activity history for ${w.email}`);
-      ledgerBtn.onclick = async () => {
-        $<HTMLInputElement>('#adminLedgerFilter').value = docId;
-        $<HTMLSelectElement>('#adminLedgerType').value = 'all';
-        if (!cachedLedger.length) await loadLedger();
-        else renderLedgerTable();
-        $('#adminLedgerFilter').focus();
-      };
-
-      wrap.append(selBtn, quickGrantBtn, resetTodayBtn, ledgerBtn);
-      tdAct.appendChild(wrap);
-
-      tr.append(tdEmail, tdId, tdPlan, tdDaily, tdLifetime, tdPaid, tdAct);
-      tbody.appendChild(tr);
-
-      if (focusGrantDocId && focusGrantDocId === docId) {
-        quickGrantBtn.focus();
-      }
-    }
-    $('#adminTableWrap').hidden = wallets.length === 0;
-  };
-
-  const renderProfilesRows = (profiles: UserProfileDoc[]) => {
-    const tbody = $('#adminProfilesBody');
-    tbody.innerHTML = '';
-    for (const u of profiles) {
-      const tr = document.createElement('tr');
-      const tdName = document.createElement('td');
-      tdName.textContent = u.displayName || '—';
-      const tdEmail = document.createElement('td');
-      tdEmail.textContent = u.email;
-      const tdUid = document.createElement('td');
-      tdUid.textContent = u.uid;
-      const tdRole = document.createElement('td');
-      tdRole.textContent = u.uid === ADMIN_UID ? 'Primary Admin' : u.role === 'admin' ? 'Co-Admin' : 'User';
-
-      const tdAct = document.createElement('td');
-      const wrap = document.createElement('div');
-      wrap.className = 'admin-row-actions';
-
-      const selBtn = document.createElement('button');
-      selBtn.type = 'button';
-      selBtn.className = 'sec';
-      selBtn.textContent = 'Select';
-      selBtn.setAttribute('aria-label', `Select user ${u.email}`);
-      selBtn.onclick = () => {
-        $<HTMLInputElement>('#adminUid').value = u.uid;
-        setAdminStatus(`Selected user ${u.email}.`);
-        $('#adminAddCredits').focus();
-      };
-      wrap.appendChild(selBtn);
-
-      if (u.uid !== ADMIN_UID) {
-        const makeAdmin = u.role !== 'admin';
-        const roleBtn = document.createElement('button');
-        roleBtn.type = 'button';
-        roleBtn.className = 'sec';
-        roleBtn.textContent = makeAdmin ? 'Make Co-Admin' : 'Remove Co-Admin';
-        roleBtn.setAttribute('aria-label', `${roleBtn.textContent} for ${u.email}`);
-        roleBtn.onclick = async () => {
-          setAdminStatus(`Updating role for ${u.email}…`);
-          try {
-            await adminUpdateUserRole(u.uid, u.email, makeAdmin);
-            const refreshedProfiles = await adminListUsers();
-            renderProfilesRows(refreshedProfiles);
-            setAdminStatus(`${u.email} role updated to ${makeAdmin ? 'Co-Admin' : 'Standard User'}.`);
-          } catch (err) {
-            setAdminError(formatUiError(err, 'Could not update user role.'));
-          }
-        };
-        wrap.appendChild(roleBtn);
-      }
-
-      tdAct.appendChild(wrap);
-      tr.append(tdName, tdEmail, tdUid, tdRole, tdAct);
-      tbody.appendChild(tr);
-    }
-    $('#adminProfilesWrap').hidden = profiles.length === 0;
-  };
-
-  const findBtn = $<HTMLButtonElement>('#adminFindBtn');
-  const loadUsersBtn = $<HTMLButtonElement>('#adminLoadUsers');
-  const loadProfilesBtn = $<HTMLButtonElement>('#adminLoadProfiles');
-  const applyBtn = $<HTMLButtonElement>('#adminApply');
-
-  findBtn.onclick = async () => {
-    const queryVal = $<HTMLInputElement>('#adminSearchInput').value.trim();
-    if (!queryVal) {
-      setAdminError('Enter an email address or account ID to search.');
-      $('#adminSearchInput').focus();
-      return;
-    }
-    findBtn.disabled = true;
-    setAdminStatus(`Searching for ${queryVal}…`);
-    try {
-      const found = await adminFindWallet(queryVal);
-      if (!found) {
-        renderWalletRows([]);
-        $<HTMLInputElement>('#adminUid').value = queryVal;
-        setAdminStatus(
-          queryVal.includes('@')
-            ? `No existing account for ${queryVal}. Target field is filled if you want to set it up.`
-            : `No user found with ID ${queryVal}.`
-        );
-        return;
-      }
-      renderWalletRows([found]);
-      $<HTMLInputElement>('#adminUid').value = found.docId;
-      $<HTMLInputElement>('#adminDailyLimit').value = String(found.wallet.dailyLimit);
-      $<HTMLSelectElement>('#adminPlan').value = found.wallet.plan;
-      setAdminStatus(`Found account for ${found.wallet.email}.`);
-    } catch (err) {
-      setAdminError(formatUiError(err, 'Search failed.'));
-    } finally {
-      findBtn.disabled = false;
-    }
-  };
-
-  loadUsersBtn.onclick = async () => {
-    loadUsersBtn.disabled = true;
-    setAdminStatus('Loading user accounts…');
-    try {
-      const wallets = await adminListWallets();
-      updateWalletOverview(wallets);
-      renderWalletRows(wallets);
-      setAdminStatus(`Loaded ${wallets.length} user account(s).`);
-    } catch (err) {
-      setAdminError(formatUiError(err, 'Could not load user accounts.'));
-    } finally {
-      loadUsersBtn.disabled = false;
-    }
-  };
-
-  loadProfilesBtn.onclick = async () => {
-    loadProfilesBtn.disabled = true;
-    setAdminStatus('Loading user profiles…');
-    try {
-      const profiles = await adminListUsers();
-      renderProfilesRows(profiles);
-      setAdminStatus(`Loaded ${profiles.length} user profile(s).`);
-    } catch (err) {
-      setAdminError(formatUiError(err, 'Could not load user profiles.'));
-    } finally {
-      loadProfilesBtn.disabled = false;
-    }
-  };
-
-  applyBtn.onclick = async () => {
-    const target = $<HTMLInputElement>('#adminUid').value.trim();
-    const addCredits = parseInt($<HTMLInputElement>('#adminAddCredits').value, 10) || 0;
-    const parsedLimit = parseInt($<HTMLInputElement>('#adminDailyLimit').value, 10);
-    const dailyLimit = Number.isNaN(parsedLimit) ? 3000 : Math.max(0, parsedLimit);
-    const plan = $<HTMLSelectElement>('#adminPlan').value === 'pro' ? 'pro' : 'free';
-    const note = $<HTMLInputElement>('#adminNote').value;
-
-    if (!target) {
-      setAdminError('Choose or enter a user email or account ID first.');
-      $('#adminUid').focus();
-      return;
-    }
-    applyBtn.disabled = true;
-    setAdminStatus('Saving changes…');
-    try {
-      const updated = await adminGrantCredits(target, addCredits, dailyLimit, plan, note);
-      setAdminStatus(
-        `Saved for ${updated.email}: Credits ${updated.paidCredits.toLocaleString()}, Daily limit ${updated.dailyLimit.toLocaleString()}, Plan ${updated.plan === 'pro' ? 'Extended' : 'Free'}.`
-      );
-      $('#adminMsg').focus();
-      const wallets = await adminListWallets();
-      updateWalletOverview(wallets);
-      renderWalletRows(wallets);
-      await loadLedger();
-      if (updated.uid === currentUser?.uid || updated.email === currentUser?.email) {
-        await fetchBackendQuota(currentUser);
-      }
-    } catch (err) {
-      setAdminError(formatUiError(err, 'Could not save changes.'));
-    } finally {
-      applyBtn.disabled = false;
-    }
-  };
-
-  $('#adminBulkGrantBtn').onclick = async () => {
-    const bulkBtn = $<HTMLButtonElement>('#adminBulkGrantBtn');
-    const bonus = parseInt($<HTMLInputElement>('#adminBulkCredits').value, 10) || 0;
-    const note = $<HTMLInputElement>('#adminBulkNote').value;
-    if (bonus === 0) {
-      setAdminError('Enter a non-zero bonus character amount.');
-      return;
-    }
-    bulkBtn.disabled = true;
-    setAdminStatus('Granting bonus credits to all active user accounts…');
-    try {
-      const targets = cachedWallets.length ? cachedWallets : await adminListWallets();
-      const count = await adminGrantBulkCredits(targets, bonus, note);
-      const refreshed = await adminListWallets();
-      updateWalletOverview(refreshed);
-      renderWalletRows(refreshed);
-      await loadLedger();
-      if (currentUser) await fetchBackendQuota(currentUser);
-      setAdminStatus(`Granted ${bonus >= 0 ? '+' : ''}${bonus.toLocaleString()} credits across ${count} account(s).`);
-    } catch (err) {
-      setAdminError(formatUiError(err, 'Bulk grant failed.'));
-    } finally {
-      bulkBtn.disabled = false;
-    }
-  };
-
-  $('#adminLoadLedger').onclick = () => {
-    void loadLedger();
-  };
-  $('#adminExportCsvBtn').onclick = () => {
-    const rows = cachedFilteredLedger.length ? cachedFilteredLedger : cachedLedger;
-    if (!rows.length) {
-      $('#adminLedgerErr').textContent = 'Load recent activity history before exporting CSV.';
-      return;
-    }
-    const esc = (v: unknown) => {
-      const raw = String(v ?? '');
-      const safe =
-        typeof v === 'number' || /^-?\d+(?:\.\d+)?$/.test(raw)
-          ? raw
-          : /^[=+\-@\t\r]/.test(raw)
-            ? `'${raw}`
-            : raw;
-      return `"${safe.replace(/"/g, '""')}"`;
-    };
-    const lines = [
-      ['Time', 'UID', 'Activity', 'CreditsDelta', 'Characters', 'Model', 'Note'].map(esc).join(','),
-      ...rows.map((r) =>
-        [
-          r.createdAt?.toDate?.()?.toISOString() || '',
-          r.uid,
-          formatActivityLabel(r.type),
-          r.creditsDelta,
-          r.chars,
-          r.model,
-          r.note,
-        ]
-          .map(esc)
-          .join(',')
-      ),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `voice-studio-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    $('#adminLedgerMsg').textContent = `Exported ${rows.length} ledger row(s) to CSV.`;
-  };
-  $('#adminLedgerFilter').addEventListener('input', () => {
-    if (cachedLedger.length) renderLedgerTable();
-  });
-  $('#adminLedgerType').addEventListener('change', () => {
-    if (cachedLedger.length) renderLedgerTable();
-  });
-
-  const setInboxStatus = (msg: string) => {
-    $('#adminInboxErr').textContent = '';
-    $('#adminInboxMsg').textContent = msg;
-  };
-  const setInboxError = (msg: string) => {
-    $('#adminInboxMsg').textContent = '';
-    $('#adminInboxErr').textContent = msg;
-  };
-
-  type InboxFocusTarget =
-    | { kind: 'toggle'; id: string }
-    | { kind: 'confirm'; id: string }
-    | { kind: 'delete'; id: string }
-    | { kind: 'status' };
-
-  const renderInbox = (focusTarget?: InboxFocusTarget) => {
-    const unreadCount = cachedInbox.filter((m) => m.status === 'unread').length;
-    $('#adminStatUnread').textContent = unreadCount.toLocaleString();
-
-    const visible = unreadOnlyFilter ? cachedInbox.filter((m) => m.status === 'unread') : cachedInbox;
-    const ul = $('#adminInboxList');
-    ul.innerHTML = '';
-    if (!visible.length) {
-      const li = document.createElement('li');
-      li.className = 'hint';
-      li.textContent = unreadOnlyFilter ? 'No unread messages.' : 'No contact messages found.';
-      ul.appendChild(li);
-      if (focusTarget?.kind === 'status') $('#adminInboxMsg').focus();
-      return;
-    }
-
-    for (const m of visible) {
-      const li = document.createElement('li');
-      li.className = 'inbox-item';
-
-      const heading = document.createElement('strong');
-      heading.textContent = `[${m.status === 'unread' ? 'UNREAD' : 'READ'}] ${m.subject}`;
-
-      const meta = document.createElement('div');
-      meta.className = 'inbox-meta';
-      const when = m.createdAt?.toDate?.()?.toLocaleString() || 'Recent';
-      meta.textContent = `From: ${m.name} (${m.email}) · ${when}`;
-
-      const body = document.createElement('p');
-      body.className = 'inbox-body';
-      body.textContent = m.message;
-
-      const actions = document.createElement('div');
-      actions.className = 'btn-group';
-
-      const toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.className = 'sec';
-      const nextStatus = m.status === 'unread' ? 'read' : 'unread';
-      toggleBtn.textContent = m.status === 'unread' ? 'Mark as read' : 'Mark as unread';
-      toggleBtn.setAttribute('aria-label', `${toggleBtn.textContent} message from ${m.name}`);
-      toggleBtn.onclick = async () => {
-        try {
-          await adminSetContactMessageStatus(m.id, nextStatus);
-          cachedInbox = await adminListContactMessages();
-          renderInbox({ kind: 'toggle', id: m.id });
-          setInboxStatus(`Marked message from ${m.name} as ${nextStatus}.`);
-        } catch (err) {
-          setInboxError(formatUiError(err, 'Could not update message status.'));
-        }
-      };
-
-      if (pendingDeleteId === m.id) {
-        const confirmBtn = document.createElement('button');
-        confirmBtn.type = 'button';
-        confirmBtn.className = 'dng';
-        confirmBtn.textContent = 'Confirm delete';
-        confirmBtn.setAttribute('aria-label', `Confirm delete message from ${m.name}`);
-        confirmBtn.onclick = async () => {
-          try {
-            pendingDeleteId = null;
-            await adminDeleteContactMessage(m.id);
-            cachedInbox = await adminListContactMessages();
-            setInboxStatus(`Deleted message from ${m.name}.`);
-            renderInbox({ kind: 'status' });
-          } catch (err) {
-            setInboxError(formatUiError(err, 'Could not delete message.'));
-          }
-        };
-
-        const cancelDelBtn = document.createElement('button');
-        cancelDelBtn.type = 'button';
-        cancelDelBtn.className = 'sec';
-        cancelDelBtn.textContent = 'Cancel';
-        cancelDelBtn.onclick = () => {
-          pendingDeleteId = null;
-          renderInbox({ kind: 'delete', id: m.id });
-        };
-
-        actions.append(toggleBtn, confirmBtn, cancelDelBtn);
-        li.append(heading, meta, body, actions);
-        ul.appendChild(li);
-
-        if (focusTarget?.kind === 'confirm' && focusTarget.id === m.id) confirmBtn.focus();
-        else if (focusTarget?.kind === 'toggle' && focusTarget.id === m.id) toggleBtn.focus();
-      } else {
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'dng';
-        delBtn.textContent = 'Delete';
-        delBtn.setAttribute('aria-label', `Delete message from ${m.name}`);
-        delBtn.onclick = () => {
-          pendingDeleteId = m.id;
-          renderInbox({ kind: 'confirm', id: m.id });
-        };
-        actions.append(toggleBtn, delBtn);
-        li.append(heading, meta, body, actions);
-        ul.appendChild(li);
-
-        if (focusTarget?.kind === 'delete' && focusTarget.id === m.id) delBtn.focus();
-        else if (focusTarget?.kind === 'toggle' && focusTarget.id === m.id) toggleBtn.focus();
-      }
-    }
-
-    if (focusTarget?.kind === 'status') {
-      $('#adminInboxMsg').focus();
-    }
-  };
-
-  const loadInbox = async () => {
-    setInboxStatus('Loading contact messages…');
-    try {
-      cachedInbox = await adminListContactMessages();
-      renderInbox();
-      const unreadCount = cachedInbox.filter((m) => m.status === 'unread').length;
-      setInboxStatus(`Loaded ${cachedInbox.length} message(s) (${unreadCount} unread).`);
-    } catch (err) {
-      setInboxError(formatUiError(err, 'Could not load contact messages.'));
-    }
-  };
-
-  $('#adminLoadInbox').onclick = () => {
-    void loadInbox();
-  };
-
-  $('#adminUnreadOnly').onclick = () => {
-    unreadOnlyFilter = !unreadOnlyFilter;
-    const btn = $('#adminUnreadOnly');
-    btn.setAttribute('aria-pressed', String(unreadOnlyFilter));
-    btn.textContent = unreadOnlyFilter ? 'Show all messages' : 'Show unread only';
-    renderInbox();
-  };
-
-  const checkHealth = async () => {
-    const statusEl = $('#adminSystemStatus');
-    statusEl.textContent = 'Checking server status…';
-    try {
-      const res = await fetch('/api/health');
-      if (res.status === 404) {
-        statusEl.textContent = 'Speech server route was not found on this preview URL.';
-        return;
-      }
-      if (!res.ok) {
-        statusEl.textContent = `Server returned status code ${res.status}.`;
-        return;
-      }
-      const data = (await res.json()) as {
-        backendConfigured?: boolean;
-        dailyLimit?: number;
-        keySource?: string;
-        maintenanceMode?: boolean;
-      };
-      statusEl.textContent = data.backendConfigured
-        ? `Speech server active (Source: ${data.keySource || 'env'}). Daily allowance: ${(data.dailyLimit || 3000).toLocaleString()} chars · ${data.maintenanceMode ? 'Maintenance ON' : 'Live'}.`
-        : 'Server is online, but the shared speech key is not configured yet.';
-    } catch {
-      statusEl.textContent = 'Could not check server status right now.';
-    }
-  };
-
-  const renderReferralsTable = (rows: ReferralRecordDoc[]) => {
-    const tbody = $('#adminRefBody');
-    tbody.innerHTML = '';
-    for (const r of rows) {
-      const tr = document.createElement('tr');
-      const tdUid = document.createElement('td');
-      tdUid.textContent = r.uid;
-      const tdRef = document.createElement('td');
-      tdRef.textContent = r.referrerUid;
-      const tdStatus = document.createElement('td');
-      tdStatus.textContent = r.bonusGranted ? 'Bonus granted (+2,000)' : 'Pending approval';
-
-      const tdAct = document.createElement('td');
-      if (!r.bonusGranted) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'sec';
-        btn.textContent = 'Grant +2k bonus';
-        btn.onclick = async () => {
-          $('#adminRefErr').textContent = '';
-          $('#adminRefMsg').textContent = `Granting referral bonus for ${r.referrerUid}…`;
-          try {
-            await adminApproveReferral(r, 2000);
-            const refreshed = await adminListReferrals();
-            renderReferralsTable(refreshed);
-            const wallets = await adminListWallets();
-            updateWalletOverview(wallets);
-            renderWalletRows(wallets);
-            $('#adminRefMsg').textContent = `Granted 2,000 credits to ${r.referrerUid}.`;
-          } catch (err) {
-            $('#adminRefErr').textContent = formatUiError(err, 'Could not grant referral bonus.');
-          }
-        };
-        tdAct.appendChild(btn);
-      } else {
-        tdAct.textContent = 'Completed';
-      }
-      tr.append(tdUid, tdRef, tdStatus, tdAct);
-      tbody.appendChild(tr);
-    }
-    $('#adminRefWrap').hidden = rows.length === 0;
-    $('#adminRefMsg').textContent = rows.length ? `Showing ${rows.length} referral record(s).` : 'No referrals recorded yet.';
-  };
-
-  const loadReferrals = async () => {
-    $('#adminRefErr').textContent = '';
-    $('#adminRefMsg').textContent = 'Loading referrals…';
-    try {
-      const rows = await adminListReferrals();
-      renderReferralsTable(rows);
-    } catch (err) {
-      $('#adminRefMsg').textContent = '';
-      $('#adminRefErr').textContent = formatUiError(err, 'Could not load referrals.');
-    }
-  };
-
-  $('#adminLoadReferrals').onclick = () => {
-    void loadReferrals();
-  };
-
-  $('#adminCheckHealth').onclick = () => {
-    void checkHealth();
-  };
-
-  const refreshAllBtn = $<HTMLButtonElement>('#adminRefreshAll');
-  refreshAllBtn.onclick = async () => {
-    refreshAllBtn.disabled = true;
-    $('#adminOverviewMsg').textContent = 'Loading admin overview…';
-    try {
-      const [wallets, profiles, ledger, inbox, referrals] = await Promise.all([
-        adminListWallets(),
-        adminListUsers(),
-        adminListRecentLedger(),
-        adminListContactMessages(),
-        adminListReferrals(),
-      ]);
-      updateWalletOverview(wallets);
-      renderWalletRows(wallets);
-      renderProfilesRows(profiles);
-      cachedLedger = ledger;
-      renderLedgerTable();
-      cachedInbox = inbox;
-      renderInbox();
-      renderReferralsTable(referrals);
-      await loadServerConfig();
-      await checkHealth();
-      $('#adminOverviewMsg').textContent =
-        `All admin sections updated (${wallets.length} wallet(s), ${profiles.length} profile(s)).`;
-    } catch (err) {
-      $('#adminOverviewMsg').textContent = formatUiError(err, 'Some sections could not be loaded.');
-    } finally {
-      refreshAllBtn.disabled = false;
-    }
-  };
-}
-
-/* ---- Settings & Counts ---- */
+/* ---- Settings & Workspace Bindings ---- */
 function populateSelects() {
-  const modelEl = $<HTMLSelectElement>('#model');
+  const modelEl = byId<HTMLSelectElement>('model');
+  const voiceEl = byId<HTMLSelectElement>('voice');
+  const voiceBEl = byId<HTMLSelectElement>('voiceB');
+  if (!modelEl || !voiceEl || !voiceBEl) return;
+
   modelEl.innerHTML = '';
   for (const m of MODELS) {
     const opt = document.createElement('option');
@@ -2737,24 +1825,19 @@ function populateSelects() {
     modelEl.appendChild(opt);
   }
 
-  const voiceOpts = VOICES.map((v) => {
+  voiceEl.innerHTML = '';
+  voiceBEl.innerHTML = '';
+  for (const v of VOICES) {
     const opt = document.createElement('option');
     opt.value = v;
     opt.textContent = v;
-    return opt;
-  });
-  const voiceEl = $<HTMLSelectElement>('#voice');
-  const voiceBEl = $<HTMLSelectElement>('#voiceB');
-  voiceEl.innerHTML = '';
-  voiceBEl.innerHTML = '';
-  voiceOpts.forEach((o) => {
-    voiceEl.appendChild(o.cloneNode(true));
-    voiceBEl.appendChild(o);
-  });
+    voiceEl.appendChild(opt.cloneNode(true));
+    voiceBEl.appendChild(opt);
+  }
 }
 
 function syncAdvancedSummary() {
-  const summaryEl = document.getElementById('advancedSummary');
+  const summaryEl = byId('advancedSummary');
   if (!summaryEl) return;
   const fmtText = cfg.format === 'mp3' ? `MP3 ${cfg.mp3Kbps} kbps` : 'WAV 24 kHz';
   const modelShort = MODELS.find((m) => m.id === cfg.model)?.label.split('(')[0].trim() || cfg.model;
@@ -2763,25 +1846,35 @@ function syncAdvancedSummary() {
 
 function syncOptionVisibility() {
   const isDialogue = cfg.mode === 'dialogue';
-  $('#voiceBWrap').hidden = !isDialogue;
-  $('#dialogueHint').hidden = !isDialogue;
-  $('#sampleSingle').hidden = isDialogue;
-  $('#sampleDialogue').hidden = !isDialogue;
-  $('#voiceLabel').textContent = isDialogue ? 'Speaker A voice' : 'Voice';
-  $('#mp3QualityWrap').hidden = cfg.format !== 'mp3';
+  const voiceBWrap = byId('voiceBWrap');
+  if (voiceBWrap) voiceBWrap.hidden = !isDialogue;
+  const dHint = byId('dialogueHint');
+  if (dHint) dHint.hidden = !isDialogue;
+  const sSingle = byId('sampleSingle');
+  if (sSingle) sSingle.hidden = isDialogue;
+  const sDlg = byId('sampleDialogue');
+  if (sDlg) sDlg.hidden = !isDialogue;
+  const vLabel = byId('voiceLabel');
+  if (vLabel) vLabel.textContent = isDialogue ? 'Speaker A voice' : 'Voice';
+  const mp3Wrap = byId('mp3QualityWrap');
+  if (mp3Wrap) mp3Wrap.hidden = cfg.format !== 'mp3';
   syncAdvancedSummary();
 }
 
 function syncByokUi() {
-  $('#byokWrap').hidden = !byokEnabled;
-  if (isByokActive()) {
-    $('#byokSummary').textContent = 'Own Gemini API Key (Unlimited Mode active)';
-  } else if (byokEnabled) {
-    $('#byokSummary').textContent = 'Own Gemini API Key (enter key to activate Unlimited Mode)';
-  } else {
-    $('#byokSummary').textContent = 'Own Gemini API Key (optional Unlimited Mode)';
+  const byokWrap = byId('byokWrap');
+  if (byokWrap) byokWrap.hidden = !byokEnabled;
+  const byokSum = byId('byokSummary');
+  if (byokSum) {
+    if (isByokActive()) {
+      byokSum.textContent = 'Own Gemini API Key (Unlimited Mode active)';
+    } else if (byokEnabled) {
+      byokSum.textContent = 'Own Gemini API Key (enter key to activate Unlimited Mode)';
+    } else {
+      byokSum.textContent = 'Own Gemini API Key (optional Unlimited Mode)';
+    }
   }
-  const notice = document.getElementById('backendNotice');
+  const notice = byId('backendNotice');
   if (notice && isByokActive()) {
     notice.hidden = true;
     notice.textContent = '';
@@ -2789,11 +1882,14 @@ function syncByokUi() {
 }
 
 function updateCounts() {
-  const text = $<HTMLTextAreaElement>('#text').value;
+  const countEl = byId('count');
+  const textEl = byId<HTMLTextAreaElement>('text');
+  if (!countEl || !textEl) return;
+  const text = textEl.value;
   const chunkSize = num('#chunk', 300, 3000, 1800);
   const stats = estimateStats(text, chunkSize, cfg.model);
   if (!stats.chars) {
-    $('#count').textContent = 'Characters: 0';
+    countEl.textContent = 'Characters: 0';
     return;
   }
   const estMins = Math.max(1, Math.round(stats.estMinutes));
@@ -2807,13 +1903,13 @@ function updateCounts() {
         ? ` Within your available balance (${available.toLocaleString()} chars).`
         : ` Exceeds your current balance (${available.toLocaleString()} chars) by ${(stats.chars - available).toLocaleString()} chars.`;
   }
-  $('#count').textContent =
+  countEl.textContent =
     `Characters: ${stats.chars.toLocaleString()} (${stats.words.toLocaleString()} words). ` +
     `About ${stats.estParts} parts, ~${estMins} min audio.${quotaMsg}`;
 }
 
 function syncStylePresetSelect(styleValue: string) {
-  const sel = document.getElementById('stylePreset') as HTMLSelectElement | null;
+  const sel = byId<HTMLSelectElement>('stylePreset');
   if (!sel) return;
   const trimmed = styleValue.trim();
   if (!trimmed) {
@@ -2824,7 +1920,71 @@ function syncStylePresetSelect(styleValue: string) {
   sel.value = hasMatch ? trimmed : '__custom__';
 }
 
-function bindSettings() {
+function drawDict() {
+  const ul = byId('dictList');
+  const sumEl = byId('dictSummary');
+  if (!ul || !sumEl) return;
+  ul.innerHTML = '';
+  const activeCount = dictRules.filter((r) => r.enabled).length;
+  sumEl.textContent = `Pronunciation dictionary (${activeCount} active rule${activeCount === 1 ? '' : 's'})`;
+
+  if (!dictRules.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No custom pronunciation rules yet.';
+    ul.appendChild(li);
+    return;
+  }
+
+  dictRules.forEach((rule, idx) => {
+    const li = document.createElement('li');
+    const info = document.createElement('span');
+    info.textContent = `"${rule.find}" -> "${rule.replace}"${rule.wholeWord ? ' (whole word)' : ''}`;
+
+    const actions = document.createElement('div');
+    actions.className = 'dict-item-actions';
+
+    const toggleLabel = document.createElement('label');
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = rule.enabled;
+    toggle.setAttribute('aria-label', `Enable rule ${rule.find} to ${rule.replace}`);
+    toggle.onchange = () => {
+      dictRules[idx].enabled = toggle.checked;
+      store.set('vs.dict', dictRules);
+      const countNow = dictRules.filter((r) => r.enabled).length;
+      sumEl.textContent = `Pronunciation dictionary (${countNow} active rule${countNow === 1 ? '' : 's'})`;
+    };
+    toggleLabel.appendChild(toggle);
+    toggleLabel.appendChild(document.createTextNode('Active'));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'sec';
+    del.textContent = 'Remove';
+    del.setAttribute('aria-label', `Remove pronunciation rule ${rule.find}`);
+    del.onclick = () => {
+      dictRules.splice(idx, 1);
+      store.set('vs.dict', dictRules);
+      drawDict();
+      const msgEl = byId('dictMsg');
+      if (msgEl) msgEl.textContent = 'Rule removed.';
+      const nextRemove = ul.querySelector<HTMLButtonElement>('button.sec');
+      if (nextRemove) nextRemove.focus();
+      else byId('dictFind')?.focus();
+    };
+
+    actions.appendChild(toggleLabel);
+    actions.appendChild(del);
+    li.appendChild(info);
+    li.appendChild(actions);
+    ul.appendChild(li);
+  });
+}
+
+function bindWorkspaceInteractionsOnce() {
+  if (workspaceEventsBound || !byId('converterWorkspace')) return;
+  workspaceEventsBound = true;
+
   populateSelects();
 
   const modelSel = $<HTMLSelectElement>('#model');
@@ -2848,14 +2008,8 @@ function bindSettings() {
   $<HTMLInputElement>('#byokEnabled').checked = byokEnabled;
   $<HTMLInputElement>('#byokKey').value = byokKey;
 
-  const openPdfShortcut = document.getElementById('openPdfStudioShortcut');
-  if (openPdfShortcut) {
-    openPdfShortcut.onclick = () => navigateToPage('pdfStudio', true);
-  }
-  const openPodcastShortcut = document.getElementById('openPodcastStudioShortcut');
-  if (openPodcastShortcut) {
-    openPodcastShortcut.onclick = () => navigateToPage('podcastStudio', true);
-  }
+  byId('openPdfStudioShortcut')?.addEventListener('click', () => navigateToPage('pdfStudio', true));
+  byId('openPodcastStudioShortcut')?.addEventListener('click', () => navigateToPage('podcastStudio', true));
 
   const saveCfg = () => store.set('vs.cfg', cfg);
 
@@ -2979,128 +2133,402 @@ function bindSettings() {
   });
 
   $('#text').addEventListener('input', () => {
+    pendingEditorText = $<HTMLTextAreaElement>('#text').value;
     currentTextOrigin = 'user';
     sampleReplaceArmed = false;
     updateCounts();
   });
+
+  $('#addDict').onclick = () => {
+    const findEl = $<HTMLInputElement>('#dictFind');
+    const repEl = $<HTMLInputElement>('#dictReplace');
+    const wholeEl = $<HTMLInputElement>('#dictWhole');
+    const find = findEl.value.trim().slice(0, 120);
+    const replace = repEl.value.trim().slice(0, 120);
+
+    if (!find || !replace) {
+      $('#dictMsg').textContent = 'Enter both the written word and how it should be spoken.';
+      return;
+    }
+    if (dictRules.length >= 200) {
+      $('#dictMsg').textContent = 'Maximum 200 pronunciation rules allowed.';
+      return;
+    }
+    dictRules.push({
+      id: String(Date.now()) + Math.random().toString(16).slice(2, 6),
+      find,
+      replace,
+      wholeWord: wholeEl.checked,
+      enabled: true,
+    });
+    store.set('vs.dict', dictRules);
+    findEl.value = '';
+    repEl.value = '';
+    drawDict();
+    $('#dictMsg').textContent = `Saved rule: "${find}" will be spoken as "${replace}".`;
+    findEl.focus();
+  };
+
+  $('#presetDict').onclick = () => {
+    const presets: Omit<PronunciationRule, 'id'>[] = [
+      { find: 'Dr.', replace: 'Doctor', wholeWord: false, enabled: true },
+      { find: 'Prof.', replace: 'Professor', wholeWord: false, enabled: true },
+      { find: 'e.g.', replace: 'for example', wholeWord: false, enabled: true },
+      { find: 'i.e.', replace: 'that is', wholeWord: false, enabled: true },
+      { find: 'etc.', replace: 'et cetera', wholeWord: false, enabled: true },
+      { find: 'vs.', replace: 'versus', wholeWord: false, enabled: true },
+      { find: 'Jieshuo', replace: 'Jay-shwoh', wholeWord: true, enabled: true },
+    ];
+    let added = 0;
+    for (const p of presets) {
+      if (dictRules.length >= 200) break;
+      if (!dictRules.some((r) => r.find.toLowerCase() === p.find.toLowerCase())) {
+        dictRules.push({ ...p, id: String(Date.now()) + added });
+        added++;
+      }
+    }
+    store.set('vs.dict', dictRules);
+    drawDict();
+    $('#dictMsg').textContent = added
+      ? `Added ${added} common academic presets.`
+      : 'All presets are already in your dictionary.';
+  };
+
+  $('#gen').onclick = () => {
+    if (!requireSignedInUser()) return;
+    const text = getEditorTextValue().trim();
+    if (!text) {
+      say('Please enter some text first.');
+      $('#text').focus();
+      return;
+    }
+    const chunkSize = num('#chunk', 300, 3000, 1800);
+    const items = prepareSpeechItems(text, chunkSize);
+    if (!items.length) {
+      say('There is nothing readable in the text.');
+      return;
+    }
+    job = {
+      items,
+      done: 0,
+      parts: [],
+      rate: 24000,
+      model: cfg.model,
+      style: cfg.style,
+      pause: num('#pause', 0, 60, 1),
+      sil: num('#sil', 0, 3000, 250),
+      format: cfg.format,
+      mp3Kbps: cfg.mp3Kbps,
+    };
+    lastBlob = null;
+    lastSrtBlob = null;
+    lastVttBlob = null;
+    lastSubtitleSegments = [];
+    lastName = '';
+    lastSrtName = '';
+    lastVttName = '';
+    closeExportModal(false);
+    $('#result').hidden = true;
+    $<HTMLProgressElement>('#prog').value = 0;
+    void run();
+  };
+
+  $('#resume').onclick = () => {
+    if (job) void run();
+  };
+
+  $('#cancel').onclick = () => {
+    if (ctl) ctl.abort();
+  };
+
+  $('#voiceDemo').onclick = async () => {
+    if (!requireSignedInUser()) return;
+    const demoLine = `Hello! You are testing the ${cfg.voice} voice in Voice Studio. Your own text box stays untouched.`;
+    await playQuickAudioClip(demoLine, cfg.voice, `${cfg.voice} voice demo`);
+  };
+
+  $('#prev').onclick = async () => {
+    if (!requireSignedInUser()) return;
+    const raw = getEditorTextValue().trim();
+    if (!raw) {
+      say('Type some text to preview first, or press Test selected voice.');
+      $('#text').focus();
+      return;
+    }
+
+    const previewItems = prepareSpeechItems(safePreviewSlice(raw, 200), 200);
+    const firstItem = previewItems[0];
+    if (!firstItem) {
+      say('There is nothing readable to preview.');
+      return;
+    }
+
+    await playQuickAudioClip(firstItem.text, firstItem.voice, 'preview');
+  };
+
+  $('#clear').onclick = () => {
+    if (!running) {
+      job = null;
+      const progEl = $<HTMLProgressElement>('#prog');
+      progEl.value = 0;
+      progEl.setAttribute('aria-valuetext', '0 percent');
+      ui();
+    }
+    setText('', 'user');
+    loadedDocTitle = '';
+    fullLoadedDocText = '';
+    detectedChapters = [];
+    loadedFile = null;
+    loadedPagesText = [];
+    loadedOutlineItems = [];
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      audioUrl = null;
+    }
+    if (videoUrl) {
+      URL.revokeObjectURL(videoUrl);
+      videoUrl = null;
+    }
+    $<HTMLAudioElement>('#player').removeAttribute('src');
+    lastBlob = null;
+    lastSrtBlob = null;
+    lastVttBlob = null;
+    lastSubtitleSegments = [];
+    lastName = '';
+    lastSrtName = '';
+    lastVttName = '';
+    $<HTMLButtonElement>('#dl').disabled = true;
+    $<HTMLButtonElement>('#dlSrt').disabled = true;
+    $<HTMLButtonElement>('#dlVtt').disabled = true;
+    closeExportModal(false);
+    $('#result').hidden = true;
+    renderChaptersBox();
+    setAudioTitleValue('');
+    const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
+    if (pdfInfoEl) {
+      pdfInfoEl.textContent =
+        'No file loaded yet. Choose a PDF, EPUB, DOCX, or TXT file below (everything stays on your device).';
+    }
+    say('Text cleared.');
+    $('#text').focus();
+  };
+
+  $('#paste').onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (!t) {
+        say('The clipboard is empty.');
+        return;
+      }
+      if (loadedDocTitle && getAudioTitleValue().trim() === loadedDocTitle) {
+        setAudioTitleValue('');
+      }
+      loadedDocTitle = '';
+      const wasSample = currentTextOrigin === 'sample';
+      setText(t, 'user');
+      say(
+        wasSample
+          ? `Replaced sample text with ${[...t].length.toLocaleString()} pasted characters.`
+          : `Pasted ${[...t].length.toLocaleString()} characters.`
+      );
+    } catch {
+      say('Your browser did not allow clipboard access. Paste with Ctrl+V instead.');
+      $('#text').focus();
+    }
+  };
+
+  $('#sampleSingle').onclick = () => {
+    insertSampleWithGuard(
+      'Voice Studio converts study notes, PDF textbooks, and bilingual English or Urdu paragraphs into clear speech you can download as a single MP3 or WAV file.',
+      'Inserted sample script. Clear text or paste your own before converting real notes.'
+    );
+  };
+
+  $('#sampleDialogue').onclick = () => {
+    insertSampleWithGuard(
+      'Host: Welcome back to our study session. Today we are reviewing how long-form text-to-speech works.\n' +
+        'Guest: Thanks for having me. Splitting text at natural sentence boundaries keeps the pacing smooth and easy to follow.\n' +
+        'Host: Let us test two different Gemini voices in one audio file!',
+      'Inserted a sample dialogue script. Edit it or clear text before pasting your own.'
+    );
+  };
+
+  $('#load').onclick = () => $<HTMLInputElement>('#file').click();
+
+  $('#file').onchange = async (e) => {
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    if (!f) return;
+    await handleSelectedFile(f);
+    input.value = '';
+  };
+
+  const textareaEl = $<HTMLTextAreaElement>('#text');
+  textareaEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    textareaEl.classList.add('drag-active');
+  });
+  textareaEl.addEventListener('dragleave', () => {
+    textareaEl.classList.remove('drag-active');
+  });
+  textareaEl.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    textareaEl.classList.remove('drag-active');
+    const f = e.dataTransfer?.files?.[0];
+    if (f && !running && !extracting) {
+      await handleSelectedFile(f);
+    }
+  });
+
+  $('#detectChaptersBtn').onclick = async () => {
+    const raw = getEditorTextValue().trim();
+    if (!raw) {
+      say('Enter or load some text before splitting into chapters.');
+      $('#text').focus();
+      return;
+    }
+    const { splitTextIntoChapters } = await import('./doc-extract');
+    const found = splitTextIntoChapters(raw, 'Chapter');
+    if (found.length < 2) {
+      say('Only 1 section was detected. Add headings like "Chapter 1" or "Part 1", or paste longer text (4,500+ chars) to split automatically.');
+      return;
+    }
+    fullLoadedDocText = raw;
+    detectedChapters = found;
+    renderChaptersBox();
+    say(`Detected ${found.length} chapters. Select one to load, or export all as an Audiobook ZIP.`);
+    $('#chapterSelect').focus();
+  };
+
+  $('#loadChapterBtn').onclick = () => {
+    const idx = parseInt($<HTMLSelectElement>('#chapterSelect').value, 10) || 0;
+    const ch = detectedChapters[idx];
+    if (!ch) return;
+    setText(ch.text, 'doc');
+    const baseTitle = loadedDocTitle || 'audiobook';
+    setAudioTitleValue(`${baseTitle} - ${ch.title}`.slice(0, 80));
+    say(`Loaded ${ch.title} (${[...ch.text].length.toLocaleString()} characters).`);
+    $('#text').focus();
+  };
+
+  $('#loadAllChaptersBtn').onclick = () => {
+    if (!fullLoadedDocText) return;
+    setText(fullLoadedDocText, 'doc');
+    if (loadedDocTitle) {
+      setAudioTitleValue(loadedDocTitle);
+    }
+    say(`Restored full book text (${[...fullLoadedDocText].length.toLocaleString()} characters).`);
+    $('#text').focus();
+  };
+
+  $('#exportChaptersZipBtn').onclick = async () => {
+    if (!requireSignedInUser()) return;
+    if (detectedChapters.length < 2) {
+      say('Load a multi-chapter document or split your text into chapters first.');
+      return;
+    }
+
+    const chunkSize = num('#chunk', 300, 3000, 1800);
+    const pauseSec = num('#pause', 0, 60, 1);
+    const silMs = num('#sil', 0, 3000, 250);
+    const progEl = $<HTMLProgressElement>('#prog');
+
+    running = true;
+    ctl = new AbortController();
+    ui();
+    progEl.hidden = false;
+    progEl.value = 0;
+    say(`Preparing Audiobook ZIP (${detectedChapters.length} chapters)…`);
+
+    try {
+      const JSZip = (await import('jszip')).default;
+      const { encodeMp3Blob } = cfg.format === 'mp3' ? await import('./mp3-encode') : { encodeMp3Blob: null };
+      const zip = new JSZip();
+      const tocLines: string[] = [`Voice Studio Audiobook Export`, `Chapters: ${detectedChapters.length}`, ''];
+
+      for (let c = 0; c < detectedChapters.length; c++) {
+        if (ctl.signal.aborted) {
+          say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
+          return;
+        }
+
+        const chapter = detectedChapters[c];
+        const items = prepareSpeechItems(chapter.text, chunkSize);
+        if (!items.length) continue;
+
+        const parts: Uint8Array[] = [];
+        let rate = 24000;
+
+        for (let i = 0; i < items.length; i++) {
+          if (ctl.signal.aborted) {
+            say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
+            return;
+          }
+          say(`Chapter ${c + 1}/${detectedChapters.length} (${chapter.title}) · Part ${i + 1}/${items.length}…`);
+          const r = await callServerTts(cfg.model, items[i].voice, cfg.style, items[i].text, ctl.signal);
+          if (r.kind === 'abort') return;
+          if (r.kind !== 'ok') {
+            sayError(`Chapter ${c + 1} paused: ${r.msg}`);
+            return;
+          }
+          const pcmObj = toPcm(r.d);
+          if (!parts.length) rate = pcmObj.rate;
+          parts.push(pcmObj.pcm);
+          if (i < items.length - 1) await sleep(pauseSec * 1000);
+        }
+
+        const audioBlob =
+          cfg.format === 'mp3' && encodeMp3Blob
+            ? await encodeMp3Blob(parts, rate, silMs, cfg.mp3Kbps)
+            : wavBlob(parts, rate, silMs);
+
+        const segments = buildSubtitleSegments(items, parts, rate, silMs);
+        const srtText = formatSubtitles(segments, 'srt');
+
+        const pad = String(c + 1).padStart(2, '0');
+        const chapterSlug = cleanTitleSlug(chapter.title) || `chapter-${c + 1}`;
+        const audioFilename = `${pad}-${chapterSlug}.${cfg.format}`;
+        const srtFilename = `${pad}-${chapterSlug}.srt`;
+
+        zip.file(audioFilename, audioBlob);
+        zip.file(srtFilename, srtText);
+        tocLines.push(`${pad}. ${chapter.title} -> ${audioFilename} + ${srtFilename}`);
+
+        const pct = Math.round(((c + 1) * 100) / detectedChapters.length);
+        progEl.value = pct;
+        progEl.setAttribute('aria-valuetext', `${pct} percent (${c + 1} of ${detectedChapters.length} chapters)`);
+      }
+
+      zip.file('00-chapters-index.txt', tocLines.join('\n') + '\n');
+      say('Packaging chapters & synced subtitles into ZIP archive…');
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipStem = cleanTitleSlug(getAudioTitleValue() || loadedDocTitle) || 'voice-studio';
+      const zipName = `${zipStem}-audiobook.zip`;
+
+      const tmpUrl = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = tmpUrl;
+      a.download = zipName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(tmpUrl), 60000);
+      say(`Finished! Downloaded ${zipName} with ${detectedChapters.length} chapters and synced .SRT subtitles.`);
+    } catch {
+      sayError('Audiobook ZIP export encountered an unexpected error. Try lowering Chapters/chunks or export chapters individually.');
+    } finally {
+      running = false;
+      ctl = null;
+      progEl.value = 0;
+      progEl.hidden = true;
+      ui();
+    }
+  };
+
   syncOptionVisibility();
   syncByokUi();
   updateCounts();
 }
-
-/* ---- Pronunciation Dictionary ---- */
-function drawDict() {
-  const ul = $('#dictList');
-  ul.innerHTML = '';
-  const activeCount = dictRules.filter((r) => r.enabled).length;
-  $('#dictSummary').textContent = `Pronunciation dictionary (${activeCount} active rule${activeCount === 1 ? '' : 's'})`;
-
-  if (!dictRules.length) {
-    const li = document.createElement('li');
-    li.textContent = 'No custom pronunciation rules yet.';
-    ul.appendChild(li);
-    return;
-  }
-
-  dictRules.forEach((rule, idx) => {
-    const li = document.createElement('li');
-    const info = document.createElement('span');
-    info.textContent = `"${rule.find}" → "${rule.replace}"${rule.wholeWord ? ' (whole word)' : ''}`;
-
-    const actions = document.createElement('div');
-    actions.className = 'dict-item-actions';
-
-    const toggleLabel = document.createElement('label');
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    toggle.checked = rule.enabled;
-    toggle.setAttribute('aria-label', `Enable rule ${rule.find} to ${rule.replace}`);
-    toggle.onchange = () => {
-      dictRules[idx].enabled = toggle.checked;
-      store.set('vs.dict', dictRules);
-      const countNow = dictRules.filter((r) => r.enabled).length;
-      $('#dictSummary').textContent = `Pronunciation dictionary (${countNow} active rule${countNow === 1 ? '' : 's'})`;
-    };
-    toggleLabel.appendChild(toggle);
-    toggleLabel.appendChild(document.createTextNode('Active'));
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'sec';
-    del.textContent = 'Remove';
-    del.setAttribute('aria-label', `Remove pronunciation rule ${rule.find}`);
-    del.onclick = () => {
-      dictRules.splice(idx, 1);
-      store.set('vs.dict', dictRules);
-      drawDict();
-      $('#dictMsg').textContent = 'Rule removed.';
-      const nextRemove = ul.querySelector<HTMLButtonElement>('button.sec');
-      if (nextRemove) nextRemove.focus();
-      else $('#dictFind').focus();
-    };
-
-    actions.appendChild(toggleLabel);
-    actions.appendChild(del);
-    li.appendChild(info);
-    li.appendChild(actions);
-    ul.appendChild(li);
-  });
-}
-
-$('#addDict').onclick = () => {
-  const findEl = $<HTMLInputElement>('#dictFind');
-  const repEl = $<HTMLInputElement>('#dictReplace');
-  const wholeEl = $<HTMLInputElement>('#dictWhole');
-  const find = findEl.value.trim().slice(0, 120);
-  const replace = repEl.value.trim().slice(0, 120);
-
-  if (!find || !replace) {
-    $('#dictMsg').textContent = 'Enter both the written word and how it should be spoken.';
-    return;
-  }
-  if (dictRules.length >= 200) {
-    $('#dictMsg').textContent = 'Maximum 200 pronunciation rules allowed.';
-    return;
-  }
-  dictRules.push({
-    id: String(Date.now()) + Math.random().toString(16).slice(2, 6),
-    find,
-    replace,
-    wholeWord: wholeEl.checked,
-    enabled: true,
-  });
-  store.set('vs.dict', dictRules);
-  findEl.value = '';
-  repEl.value = '';
-  drawDict();
-  $('#dictMsg').textContent = `Saved rule: "${find}" will be spoken as "${replace}".`;
-  findEl.focus();
-};
-
-$('#presetDict').onclick = () => {
-  const presets: Omit<PronunciationRule, 'id'>[] = [
-    { find: 'Dr.', replace: 'Doctor', wholeWord: false, enabled: true },
-    { find: 'Prof.', replace: 'Professor', wholeWord: false, enabled: true },
-    { find: 'e.g.', replace: 'for example', wholeWord: false, enabled: true },
-    { find: 'i.e.', replace: 'that is', wholeWord: false, enabled: true },
-    { find: 'etc.', replace: 'et cetera', wholeWord: false, enabled: true },
-    { find: 'vs.', replace: 'versus', wholeWord: false, enabled: true },
-    { find: 'Jieshuo', replace: 'Jay-shwoh', wholeWord: true, enabled: true },
-  ];
-  let added = 0;
-  for (const p of presets) {
-    if (dictRules.length >= 200) break;
-    if (!dictRules.some((r) => r.find.toLowerCase() === p.find.toLowerCase())) {
-      dictRules.push({ ...p, id: String(Date.now()) + added });
-      added++;
-    }
-  }
-  store.set('vs.dict', dictRules);
-  drawDict();
-  $('#dictMsg').textContent = added
-    ? `Added ${added} common academic presets.`
-    : 'All presets are already in your dictionary.';
-};
 
 /* ---- Backend TTS Proxy Call ---- */
 type ServerTtsResult =
@@ -3162,7 +2590,6 @@ async function callByokTts(
       }
     }
 
-    // Automatically fall back to next compatible Gemini TTS model on 404 model-not-found
     if (res.status === 404) {
       continue;
     }
@@ -3285,42 +2712,51 @@ async function callServerTts(
 /* ---- UI State & Generation ---- */
 function ui() {
   const busy = running || previewing || extracting || studioBusy || videoBusy;
-  $<HTMLButtonElement>('#gen').disabled = busy;
-  $<HTMLButtonElement>('#prev').disabled = busy;
-  $<HTMLButtonElement>('#voiceDemo').disabled = busy;
-  $<HTMLButtonElement>('#clear').disabled = busy;
-  $<HTMLButtonElement>('#paste').disabled = busy;
-  $<HTMLButtonElement>('#load').disabled = busy;
-  $<HTMLButtonElement>('#sampleSingle').disabled = busy;
-  $<HTMLButtonElement>('#sampleDialogue').disabled = busy;
-  $<HTMLButtonElement>('#detectChaptersBtn').disabled = busy;
-  $<HTMLButtonElement>('#loadChapterBtn').disabled = busy;
-  $<HTMLButtonElement>('#loadAllChaptersBtn').disabled = busy;
-  $<HTMLButtonElement>('#exportChaptersZipBtn').disabled = busy;
-  $<HTMLButtonElement>('#genPodcastBtn').disabled = busy;
-  $<HTMLButtonElement>('#translateBtn').disabled = busy;
-  $<HTMLSelectElement>('#templateSelect').disabled = busy;
-  $<HTMLButtonElement>('#applyTemplateBtn').disabled = busy;
-  $<HTMLButtonElement>('#pdfAgentPickFileBtn').disabled = busy;
-  $<HTMLButtonElement>('#pdfAgentRunBtn').disabled = busy;
-  $<HTMLButtonElement>('#pdfAgentLoadOnlyBtn').disabled = busy;
-  $<HTMLSelectElement>('#pdfAgentOutputStyle').disabled = busy;
-  $<HTMLSelectElement>('#videoAspect').disabled = busy;
-  $<HTMLButtonElement>('#dlVideoBtn').disabled = busy;
-  $<HTMLButtonElement>('#cancelVideoBtn').hidden = !videoBusy;
+  const setDisabled = (id: string, val: boolean) => {
+    const el = document.getElementById(id) as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | null;
+    if (el) el.disabled = val;
+  };
+  const setHidden = (id: string, val: boolean) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = val;
+  };
 
-  $<HTMLSelectElement>('#model').disabled = running;
-  $<HTMLSelectElement>('#voice').disabled = running;
-  $<HTMLSelectElement>('#voiceB').disabled = running;
-  $<HTMLSelectElement>('#mode').disabled = running;
-  $<HTMLInputElement>('#chunk').disabled = running;
-  $<HTMLSelectElement>('#format').disabled = running;
-  $<HTMLSelectElement>('#mp3Kbps').disabled = running;
+  setDisabled('gen', busy);
+  setDisabled('prev', busy);
+  setDisabled('voiceDemo', busy);
+  setDisabled('clear', busy);
+  setDisabled('paste', busy);
+  setDisabled('load', busy);
+  setDisabled('sampleSingle', busy);
+  setDisabled('sampleDialogue', busy);
+  setDisabled('detectChaptersBtn', busy);
+  setDisabled('loadChapterBtn', busy);
+  setDisabled('loadAllChaptersBtn', busy);
+  setDisabled('exportChaptersZipBtn', busy);
+  setDisabled('genPodcastBtn', busy);
+  setDisabled('translateBtn', busy);
+  setDisabled('templateSelect', busy);
+  setDisabled('applyTemplateBtn', busy);
+  setDisabled('pdfAgentPickFileBtn', busy);
+  setDisabled('pdfAgentRunBtn', busy);
+  setDisabled('pdfAgentLoadOnlyBtn', busy);
+  setDisabled('pdfAgentOutputStyle', busy);
+  setDisabled('videoAspect', busy);
+  setDisabled('dlVideoBtn', busy);
+  setHidden('cancelVideoBtn', !videoBusy);
 
-  $('#cancel').hidden = !running;
+  setDisabled('model', running);
+  setDisabled('voice', running);
+  setDisabled('voiceB', running);
+  setDisabled('mode', running);
+  setDisabled('chunk', running);
+  setDisabled('format', running);
+  setDisabled('mp3Kbps', running);
+
+  setHidden('cancel', !running);
   const canResume = Boolean(job && job.done < job.items.length);
-  $('#resume').hidden = busy || !canResume;
-  $('#prog').hidden = !running && !canResume;
+  setHidden('resume', busy || !canResume);
+  setHidden('prog', !running && !canResume);
 }
 
 function fail(m: string) {
@@ -3330,16 +2766,21 @@ function fail(m: string) {
 }
 
 async function finishOutput(currentJob: GenerationJob) {
-  const progEl = $<HTMLProgressElement>('#prog');
+  const progEl = byId<HTMLProgressElement>('prog');
   let blob: Blob;
 
   if (currentJob.format === 'mp3') {
     say('Encoding MP3 audio… please wait.');
-    progEl.value = 0;
-    progEl.setAttribute('aria-valuetext', 'Encoding MP3 0 percent');
+    if (progEl) {
+      progEl.value = 0;
+      progEl.setAttribute('aria-valuetext', 'Encoding MP3 0 percent');
+    }
+    const { encodeMp3Blob } = await import('./mp3-encode');
     blob = await encodeMp3Blob(currentJob.parts, currentJob.rate, currentJob.sil, currentJob.mp3Kbps, (pct) => {
-      progEl.value = pct;
-      progEl.setAttribute('aria-valuetext', `Encoding MP3 ${pct} percent`);
+      if (progEl) {
+        progEl.value = pct;
+        progEl.setAttribute('aria-valuetext', `Encoding MP3 ${pct} percent`);
+      }
     });
   } else {
     blob = wavBlob(currentJob.parts, currentJob.rate, currentJob.sil);
@@ -3351,9 +2792,11 @@ async function finishOutput(currentJob: GenerationJob) {
 
   running = false;
   job = null;
-  progEl.value = 0;
-  progEl.setAttribute('aria-valuetext', '0 percent');
-  progEl.hidden = true;
+  if (progEl) {
+    progEl.value = 0;
+    progEl.setAttribute('aria-valuetext', '0 percent');
+    progEl.hidden = true;
+  }
 
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   if (videoUrl) URL.revokeObjectURL(videoUrl);
@@ -3361,9 +2804,11 @@ async function finishOutput(currentJob: GenerationJob) {
 
   audioUrl = URL.createObjectURL(blob);
 
-  const player = $<HTMLAudioElement>('#player');
-  player.src = audioUrl;
-  player.playbackRate = cfg.speed;
+  const player = byId<HTMLAudioElement>('player');
+  if (player) {
+    player.src = audioUrl;
+    player.playbackRate = cfg.speed;
+  }
 
   lastBlob = blob;
   lastSrtBlob = segments.length ? new Blob([srtContent], { type: 'application/x-subrip;charset=utf-8' }) : null;
@@ -3371,9 +2816,9 @@ async function finishOutput(currentJob: GenerationJob) {
   lastSubtitleSegments = segments;
   lastName = buildDownloadFilename(
     currentJob.format,
-    $<HTMLInputElement>('#audioTitle').value,
+    getAudioTitleValue(),
     loadedDocTitle,
-    $<HTMLTextAreaElement>('#text').value,
+    getEditorTextValue(),
     cfg.mode,
     cfg.voice,
     cfg.voiceB
@@ -3403,14 +2848,16 @@ async function finishOutput(currentJob: GenerationJob) {
   const secs = Math.round(totalPcmDurationSeconds(currentJob.parts, currentJob.rate, currentJob.sil));
   const mb = (blob.size / 1048576).toFixed(2);
   const summaryLine = `${lastName} · ${mb} MB (${currentJob.format.toUpperCase()}) · ${Math.floor(secs / 60)}m ${secs % 60}s · ${segments.length} subtitle cues`;
-  $('#info').textContent = summaryLine;
+  const infoEl = byId('info');
+  if (infoEl) infoEl.textContent = summaryLine;
   $('#exportMetaSummary').textContent = summaryLine;
-  $('#result').hidden = false;
+  const resultEl = byId('result');
+  if (resultEl) resultEl.hidden = false;
   setupShare();
 
   say(`Finished. Audio is ready (${summaryLine}). Open Export Popup to download MP3, subtitles, or video.`);
   ui();
-  player.focus();
+  player?.focus();
 }
 
 function triggerSafeBlobDownload(blob: Blob | null, filename: string, missingMsg: string) {
@@ -3459,7 +2906,7 @@ $('#dlVideoBtn').onclick = async () => {
 
   try {
     const { renderSubtitleVideoBlob } = await import('./video-export');
-    const titleInput = $<HTMLInputElement>('#audioTitle').value.trim();
+    const titleInput = getAudioTitleValue().trim();
     const displayTitle = titleInput || loadedDocTitle || 'Voice Studio';
 
     const out = await renderSubtitleVideoBlob({
@@ -3511,7 +2958,7 @@ async function run() {
 
   if (!currentUser || !currentUser.emailVerified) {
     fail('Please sign in and verify your email first.');
-    (!currentUser ? $('#authCard') : $('#authVerifyBox')).focus();
+    (!currentUser ? byId('authCard') : byId('authVerifyBox'))?.focus();
     return;
   }
 
@@ -3543,9 +2990,11 @@ async function run() {
         currentJob.done++;
         tries = 0;
         const pc = Math.floor((currentJob.done * 100) / currentJob.items.length);
-        const progEl = $<HTMLProgressElement>('#prog');
-        progEl.value = pc;
-        progEl.setAttribute('aria-valuetext', `${pc} percent (${currentJob.done} of ${currentJob.items.length} parts)`);
+        const progEl = byId<HTMLProgressElement>('prog');
+        if (progEl) {
+          progEl.value = pc;
+          progEl.setAttribute('aria-valuetext', `${pc} percent (${currentJob.done} of ${currentJob.items.length} parts)`);
+        }
         if (currentJob.done === 1 || currentJob.done % 5 === 0 || currentJob.done === currentJob.items.length) {
           say(`Part ${currentJob.done} of ${currentJob.items.length} done, ${pc} percent.`);
         }
@@ -3577,24 +3026,24 @@ async function run() {
 function requireSignedInUser(): boolean {
   if (!currentUser) {
     const msg = 'Please sign in with Google or Email first.';
-    if (resolvePageId() !== 'tool') {
+    if (resolveRoute().pageId !== 'tool') {
       navigateToPage('tool', false);
     }
     say(msg);
     sayAuth(msg);
-    $('#authCard').scrollIntoView({ block: 'nearest' });
-    $('#authCard').focus();
+    byId('authCard')?.scrollIntoView({ block: 'nearest' });
+    byId('authCard')?.focus();
     return false;
   }
   if (!currentUser.emailVerified) {
     const msg = 'Please verify your email address to activate your 3,000 characters/day allowance.';
-    if (resolvePageId() !== 'tool') {
+    if (resolveRoute().pageId !== 'tool') {
       navigateToPage('tool', false);
     }
     say(msg);
     sayAuth(msg);
-    $('#authVerifyBox').scrollIntoView({ block: 'nearest' });
-    $('#authVerifyBox').focus();
+    byId('authVerifyBox')?.scrollIntoView({ block: 'nearest' });
+    byId('authVerifyBox')?.focus();
     return false;
   }
   return true;
@@ -3607,53 +3056,6 @@ function prepareSpeechItems(rawText: string, chunkSize: number): SpeechItem[] {
   }
   return chunks(spokenText, chunkSize).map((text) => ({ text, voice: cfg.voice }));
 }
-
-$('#gen').onclick = () => {
-  if (!requireSignedInUser()) return;
-  const text = $<HTMLTextAreaElement>('#text').value.trim();
-  if (!text) {
-    say('Please enter some text first.');
-    $('#text').focus();
-    return;
-  }
-  const chunkSize = num('#chunk', 300, 3000, 1800);
-  const items = prepareSpeechItems(text, chunkSize);
-  if (!items.length) {
-    say('There is nothing readable in the text.');
-    return;
-  }
-  job = {
-    items,
-    done: 0,
-    parts: [],
-    rate: 24000,
-    model: cfg.model,
-    style: cfg.style,
-    pause: num('#pause', 0, 60, 1),
-    sil: num('#sil', 0, 3000, 250),
-    format: cfg.format,
-    mp3Kbps: cfg.mp3Kbps,
-  };
-  lastBlob = null;
-  lastSrtBlob = null;
-  lastVttBlob = null;
-  lastSubtitleSegments = [];
-  lastName = '';
-  lastSrtName = '';
-  lastVttName = '';
-  closeExportModal(false);
-  $('#result').hidden = true;
-  $<HTMLProgressElement>('#prog').value = 0;
-  run();
-};
-
-$('#resume').onclick = () => {
-  if (job) run();
-};
-
-$('#cancel').onclick = () => {
-  if (ctl) ctl.abort();
-};
 
 async function playQuickAudioClip(text: string, voice: string, announceLabel: string) {
   previewing = true;
@@ -3680,114 +3082,19 @@ async function playQuickAudioClip(text: string, voice: string, announceLabel: st
     .catch(() => say(`The ${announceLabel} is ready, but your browser blocked playback.`));
 }
 
-$('#voiceDemo').onclick = async () => {
-  if (!requireSignedInUser()) return;
-  const demoLine = `Hello! You are testing the ${cfg.voice} voice in Voice Studio. Your own text box stays untouched.`;
-  await playQuickAudioClip(demoLine, cfg.voice, `${cfg.voice} voice demo`);
-};
-
-$('#prev').onclick = async () => {
-  if (!requireSignedInUser()) return;
-  const raw = $<HTMLTextAreaElement>('#text').value.trim();
-  if (!raw) {
-    say('Type some text to preview first, or press Test selected voice.');
-    $('#text').focus();
-    return;
-  }
-
-  const previewItems = prepareSpeechItems(safePreviewSlice(raw, 200), 200);
-  const firstItem = previewItems[0];
-  if (!firstItem) {
-    say('There is nothing readable to preview.');
-    return;
-  }
-
-  await playQuickAudioClip(firstItem.text, firstItem.voice, 'preview');
-};
-
-/* ---- Text Helpers, Document Import & Drag/Drop ---- */
 function setText(t: string, origin: 'user' | 'sample' | 'doc' = 'user') {
-  const el = $<HTMLTextAreaElement>('#text');
-  el.value = t;
-  updateCounts();
+  pendingEditorText = t;
+  const el = byId<HTMLTextAreaElement>('text');
+  if (el) {
+    el.value = t;
+    updateCounts();
+  }
   currentTextOrigin = origin;
   sampleReplaceArmed = false;
 }
 
-$('#clear').onclick = () => {
-  if (!running) {
-    job = null;
-    const progEl = $<HTMLProgressElement>('#prog');
-    progEl.value = 0;
-    progEl.setAttribute('aria-valuetext', '0 percent');
-    ui();
-  }
-  setText('', 'user');
-  loadedDocTitle = '';
-  fullLoadedDocText = '';
-  detectedChapters = [];
-  loadedFile = null;
-  loadedPagesText = [];
-  loadedOutlineItems = [];
-  if (audioUrl) {
-    URL.revokeObjectURL(audioUrl);
-    audioUrl = null;
-  }
-  if (videoUrl) {
-    URL.revokeObjectURL(videoUrl);
-    videoUrl = null;
-  }
-  $<HTMLAudioElement>('#player').removeAttribute('src');
-  lastBlob = null;
-  lastSrtBlob = null;
-  lastVttBlob = null;
-  lastSubtitleSegments = [];
-  lastName = '';
-  lastSrtName = '';
-  lastVttName = '';
-  $<HTMLButtonElement>('#dl').disabled = true;
-  $<HTMLButtonElement>('#dlSrt').disabled = true;
-  $<HTMLButtonElement>('#dlVtt').disabled = true;
-  closeExportModal(false);
-  $('#result').hidden = true;
-  renderChaptersBox();
-  $<HTMLInputElement>('#audioTitle').value = '';
-  const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
-  if (pdfInfoEl) {
-    pdfInfoEl.textContent =
-      'No file loaded yet. Choose a PDF, EPUB, DOCX, or TXT file below (processed locally in your browser).';
-  }
-  say('Text cleared.');
-  $('#text').focus();
-};
-
-$('#paste').onclick = async () => {
-  try {
-    const t = await navigator.clipboard.readText();
-    if (!t) {
-      say('The clipboard is empty.');
-      return;
-    }
-    const titleEl = $<HTMLInputElement>('#audioTitle');
-    if (loadedDocTitle && titleEl.value.trim() === loadedDocTitle) {
-      titleEl.value = '';
-    }
-    loadedDocTitle = '';
-    const wasSample = currentTextOrigin === 'sample';
-    setText(t, 'user');
-    say(
-      wasSample
-        ? `Replaced sample text with ${[...t].length.toLocaleString()} pasted characters.`
-        : `Pasted ${[...t].length.toLocaleString()} characters.`
-    );
-  } catch {
-    say('Your browser did not allow clipboard access. Paste with Ctrl+V instead.');
-    $('#text').focus();
-  }
-};
-
 function insertSampleWithGuard(sampleText: string, okMsg: string) {
-  const current = $<HTMLTextAreaElement>('#text').value.trim();
+  const current = getEditorTextValue().trim();
   if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
     sampleReplaceArmed = true;
     say(
@@ -3798,29 +3105,14 @@ function insertSampleWithGuard(sampleText: string, okMsg: string) {
   loadedDocTitle = '';
   setText(sampleText, 'sample');
   say(okMsg);
-  $('#text').focus();
+  byId('text')?.focus();
 }
 
-$('#sampleSingle').onclick = () => {
-  insertSampleWithGuard(
-    'Voice Studio converts study notes, PDF textbooks, and bilingual English or Urdu paragraphs into clear speech you can download as a single MP3 or WAV file.',
-    'Inserted sample script. Clear text or paste your own before converting real notes.'
-  );
-};
-
-$('#sampleDialogue').onclick = () => {
-  insertSampleWithGuard(
-    'Host: Welcome back to our study session. Today we are reviewing how long-form text-to-speech works.\n' +
-      'Guest: Thanks for having me. Splitting text at natural sentence boundaries keeps the pacing smooth and easy to follow.\n' +
-      'Host: Let us test two different Gemini voices in one audio file!',
-    'Inserted a sample dialogue script. Edit it or clear text before pasting your own.'
-  );
-};
-
 function renderChaptersBox() {
-  const box = $('#chaptersBox');
-  const sel = $<HTMLSelectElement>('#chapterSelect');
-  const summary = $('#chaptersSummary');
+  const box = byId('chaptersBox');
+  const sel = byId<HTMLSelectElement>('chapterSelect');
+  const summary = byId('chaptersSummary');
+  if (!box || !sel || !summary) return;
   sel.innerHTML = '';
 
   if (detectedChapters.length < 2) {
@@ -3844,13 +3136,20 @@ async function handleSelectedFile(f: File) {
   const isPdfUpload = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
   const maxBytes = isPdfUpload ? 30 * 1024 * 1024 : 15 * 1024 * 1024;
   if (f.size > maxBytes) {
-    say(`File is too large (${Math.round(f.size / (1024 * 1024))} MB). Maximum allowed is ${isPdfUpload ? 30 : 15} MB.`);
+    const errMsg = `File is too large (${Math.round(f.size / (1024 * 1024))} MB). Maximum allowed is ${isPdfUpload ? 30 : 15} MB.`;
+    say(errMsg);
+    const lStatus = byId('landingDropStatus');
+    if (lStatus) lStatus.textContent = errMsg;
     return;
   }
+
   extracting = true;
   loadedFile = f;
   ui();
   say(`Reading ${f.name}…`);
+  const lStatus = byId('landingDropStatus');
+  if (lStatus) lStatus.textContent = `Reading ${f.name} on your device…`;
+
   try {
     const { extractDocument } = await import('./doc-extract');
     const res = await extractDocument(f, cfg.cleanDocs);
@@ -3863,17 +3162,19 @@ async function handleSelectedFile(f: File) {
       fullLoadedDocText = '';
       detectedChapters = [];
       renderChaptersBox();
-      const isPdf = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
-      if (isPdf) {
-        const msg = `${f.name} appears to be a scanned image PDF without selectable text. Use the AI PDF & Book Studio to extract & record pages with Gemini Vision.`;
-        const agentStatus = document.getElementById('pdfAgentStatus');
-        if (agentStatus) agentStatus.textContent = msg;
-        const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
-        if (pdfInfoEl) pdfInfoEl.textContent = msg;
-        say(msg);
-      } else {
-        say(`No readable text was found inside ${f.name}.`);
-      }
+      const msg = isPdfUpload
+        ? `${f.name} appears to be a scanned image PDF. Open PDF & Book Studio to read scanned pages.`
+        : `No readable text was found inside ${f.name}.`;
+      const agentStatus = byId('pdfAgentStatus');
+      if (agentStatus) agentStatus.textContent = msg;
+      const pdfInfoEl = byId('pdfStudioFileInfo');
+      if (pdfInfoEl) pdfInfoEl.textContent = msg;
+      if (lStatus) lStatus.textContent = msg;
+      const lPrev = byId('landingSampleTextPreview');
+      if (lPrev) lPrev.hidden = true;
+      const lPlay = byId('landingPlayExcerptBtn');
+      if (lPlay) lPlay.hidden = true;
+      say(msg);
       return;
     }
 
@@ -3881,65 +3182,48 @@ async function handleSelectedFile(f: File) {
     detectedChapters = res.chaptersList || [];
     renderChaptersBox();
 
-    const titleEl = $<HTMLInputElement>('#audioTitle');
-    if (!titleEl.value.trim() || titleEl.value.trim() === prevDocTitle) {
-      titleEl.value = loadedDocTitle;
+    if (!getAudioTitleValue().trim() || getAudioTitleValue().trim() === prevDocTitle) {
+      setAudioTitleValue(loadedDocTitle);
     }
     setText(res.text, 'doc');
     const details: string[] = [res.formatLabel];
     if (res.pages) details.push(`${res.pages} pages`);
     if (res.chapters) details.push(`${res.chapters} chapters`);
-    const cleanNote = res.removedLines ? ` Cleaned ${res.removedLines} header or page-number lines.` : '';
-    say(`Loaded ${f.name} (${details.join(', ')}), ${[...res.text].length.toLocaleString()} characters.${cleanNote}`);
+    const cleanNote = res.removedLines ? ` Swept away ${res.removedLines} header or page-number lines.` : '';
+    const okMsg = `Loaded ${f.name} (${details.join(', ')}), ${[...res.text].length.toLocaleString()} characters.${cleanNote}`;
+    say(okMsg);
+
     const readyMsg = `Loaded: ${f.name} (${details.join(', ')}). Enter which chapter, topic, or page range to extract below.`;
-    const agentStatus = document.getElementById('pdfAgentStatus');
-    if (agentStatus) {
-      agentStatus.textContent = readyMsg;
+    const agentStatus = byId('pdfAgentStatus');
+    if (agentStatus) agentStatus.textContent = readyMsg;
+    const pdfInfoEl = byId('pdfStudioFileInfo');
+    if (pdfInfoEl) pdfInfoEl.textContent = readyMsg;
+
+    if (lStatus) lStatus.textContent = `${okMsg} Sign in on the right to convert to MP3 audio.`;
+    const lPrev = byId('landingSampleTextPreview');
+    if (lPrev) {
+      lPrev.hidden = false;
+      lPrev.textContent = safePreviewSlice(res.text, 320);
     }
-    const pdfInfoEl = document.getElementById('pdfStudioFileInfo');
-    if (pdfInfoEl) {
-      pdfInfoEl.textContent = readyMsg;
-    }
+    const lPlay = byId('landingPlayExcerptBtn');
+    if (lPlay) lPlay.hidden = false;
   } catch {
-    say(`Could not read ${f.name}. Make sure it is a valid PDF, DOCX, EPUB, or text file.`);
+    const errText = `Could not read ${f.name}. Make sure it is a valid PDF, DOCX, EPUB, or text file.`;
+    say(errText);
+    if (lStatus) lStatus.textContent = errText;
   } finally {
     extracting = false;
     ui();
   }
 }
 
-$('#load').onclick = () => $<HTMLInputElement>('#file').click();
-
-$('#file').onchange = async (e) => {
-  const input = e.target as HTMLInputElement;
-  const f = input.files?.[0];
-  if (!f) return;
-  await handleSelectedFile(f);
-  input.value = '';
-};
-
-const textareaEl = $<HTMLTextAreaElement>('#text');
-textareaEl.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  textareaEl.classList.add('drag-active');
-});
-textareaEl.addEventListener('dragleave', () => {
-  textareaEl.classList.remove('drag-active');
-});
-textareaEl.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  textareaEl.classList.remove('drag-active');
-  const f = e.dataTransfer?.files?.[0];
-  if (f && !running && !extracting) {
-    await handleSelectedFile(f);
-  }
-});
-
 /* ---- Share & Unload Protection ---- */
 function setupShare() {
   let ok = false;
+  const shareBtn = byId('share');
+  if (!shareBtn) return;
   if (!lastBlob) {
-    $('#share').hidden = true;
+    shareBtn.hidden = true;
     return;
   }
   const mime = lastName.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav';
@@ -3948,7 +3232,7 @@ function setupShare() {
   } catch {
     ok = false;
   }
-  $('#share').hidden = !ok;
+  shareBtn.hidden = !ok;
 }
 
 $('#share').onclick = async () => {
@@ -3972,83 +3256,6 @@ window.addEventListener('beforeunload', (e) => {
     e.returnValue = '';
   }
 });
-
-/* ---- In-Page Contact Form ---- */
-function bindContactForm() {
-  const form = $<HTMLFormElement>('#contactForm');
-  const submitBtn = $<HTMLButtonElement>('#contactSubmit');
-  const statusEl = $('#contactStatus');
-  const errEl = $('#contactErr');
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errEl.textContent = '';
-    statusEl.textContent = '';
-
-    const nameEl = $<HTMLInputElement>('#contactName');
-    const emailEl = $<HTMLInputElement>('#contactEmail');
-    const subjectEl = $<HTMLSelectElement>('#contactSubject');
-    const messageEl = $<HTMLTextAreaElement>('#contactMessage');
-
-    nameEl.removeAttribute('aria-invalid');
-    emailEl.removeAttribute('aria-invalid');
-    messageEl.removeAttribute('aria-invalid');
-
-    if (nameEl.value.trim().length < 2) {
-      nameEl.setAttribute('aria-invalid', 'true');
-      errEl.textContent = 'Enter your full name (at least 2 characters).';
-      nameEl.focus();
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
-      emailEl.setAttribute('aria-invalid', 'true');
-      errEl.textContent = 'Enter a valid reply email address.';
-      emailEl.focus();
-      return;
-    }
-    if (messageEl.value.trim().length < 10) {
-      messageEl.setAttribute('aria-invalid', 'true');
-      errEl.textContent = 'Enter a message of at least 10 characters.';
-      messageEl.focus();
-      return;
-    }
-
-    submitBtn.disabled = true;
-    statusEl.textContent = 'Sending your message…';
-
-    try {
-      const refId = await submitContactMessage({
-        name: nameEl.value,
-        email: emailEl.value,
-        subject: subjectEl.value,
-        message: messageEl.value,
-      });
-      messageEl.value = '';
-      statusEl.textContent = `Message sent. Reference: ${refId}.`;
-      statusEl.focus?.();
-    } catch (err) {
-      statusEl.textContent = '';
-      const raw = err instanceof Error ? err.message : 'Could not send message right now.';
-      if (raw.includes('"error":')) {
-        errEl.textContent = 'Message could not be saved right now. Please check all fields and try again.';
-      } else {
-        errEl.textContent = raw;
-      }
-      if (nameEl.value.trim().length < 2) {
-        nameEl.setAttribute('aria-invalid', 'true');
-        nameEl.focus();
-      } else if (!emailEl.value.includes('@')) {
-        emailEl.setAttribute('aria-invalid', 'true');
-        emailEl.focus();
-      } else if (messageEl.value.trim().length < 10) {
-        messageEl.setAttribute('aria-invalid', 'true');
-        messageEl.focus();
-      }
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-}
 
 /* ---- PWA Install & Social Share Loop ---- */
 interface BeforeInstallPromptEvent extends Event {
@@ -4112,151 +3319,7 @@ function bindPwaAndShare() {
   };
 }
 
-/* ---- Chapters, Audiobook ZIP, Creator Studio, Public Demo & Referral UI ---- */
-$('#detectChaptersBtn').onclick = async () => {
-  const raw = $<HTMLTextAreaElement>('#text').value.trim();
-  if (!raw) {
-    say('Enter or load some text before splitting into chapters.');
-    $('#text').focus();
-    return;
-  }
-  const { splitTextIntoChapters } = await import('./doc-extract');
-  const found = splitTextIntoChapters(raw, 'Chapter');
-  if (found.length < 2) {
-    say('Only 1 section was detected. Add headings like "Chapter 1" or "Part 1", or paste longer text (4,500+ chars) to split automatically.');
-    return;
-  }
-  fullLoadedDocText = raw;
-  detectedChapters = found;
-  renderChaptersBox();
-  say(`Detected ${found.length} chapters. Select one to load, or export all as an Audiobook ZIP.`);
-  $('#chapterSelect').focus();
-};
-
-$('#loadChapterBtn').onclick = () => {
-  const idx = parseInt($<HTMLSelectElement>('#chapterSelect').value, 10) || 0;
-  const ch = detectedChapters[idx];
-  if (!ch) return;
-  setText(ch.text, 'doc');
-  const baseTitle = loadedDocTitle || 'audiobook';
-  $<HTMLInputElement>('#audioTitle').value = `${baseTitle} - ${ch.title}`.slice(0, 80);
-  say(`Loaded ${ch.title} (${[...ch.text].length.toLocaleString()} characters).`);
-  $('#text').focus();
-};
-
-$('#loadAllChaptersBtn').onclick = () => {
-  if (!fullLoadedDocText) return;
-  setText(fullLoadedDocText, 'doc');
-  if (loadedDocTitle) {
-    $<HTMLInputElement>('#audioTitle').value = loadedDocTitle;
-  }
-  say(`Restored full book text (${[...fullLoadedDocText].length.toLocaleString()} characters).`);
-  $('#text').focus();
-};
-
-$('#exportChaptersZipBtn').onclick = async () => {
-  if (!requireSignedInUser()) return;
-  if (detectedChapters.length < 2) {
-    say('Load a multi-chapter document or split your text into chapters first.');
-    return;
-  }
-
-  const chunkSize = num('#chunk', 300, 3000, 1800);
-  const pauseSec = num('#pause', 0, 60, 1);
-  const silMs = num('#sil', 0, 3000, 250);
-  const progEl = $<HTMLProgressElement>('#prog');
-
-  running = true;
-  ctl = new AbortController();
-  ui();
-  progEl.hidden = false;
-  progEl.value = 0;
-  say(`Preparing Audiobook ZIP (${detectedChapters.length} chapters)…`);
-
-  try {
-    const JSZip = (await import('jszip')).default;
-    const zip = new JSZip();
-    const tocLines: string[] = [`Voice Studio Audiobook Export`, `Chapters: ${detectedChapters.length}`, ''];
-
-    for (let c = 0; c < detectedChapters.length; c++) {
-      if (ctl.signal.aborted) {
-        say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
-        return;
-      }
-
-      const chapter = detectedChapters[c];
-      const items = prepareSpeechItems(chapter.text, chunkSize);
-      if (!items.length) continue;
-
-      const parts: Uint8Array[] = [];
-      let rate = 24000;
-
-      for (let i = 0; i < items.length; i++) {
-        if (ctl.signal.aborted) {
-          say(`Audiobook ZIP export cancelled at chapter ${c + 1}.`);
-          return;
-        }
-        say(`Chapter ${c + 1}/${detectedChapters.length} (${chapter.title}) · Part ${i + 1}/${items.length}…`);
-        const r = await callServerTts(cfg.model, items[i].voice, cfg.style, items[i].text, ctl.signal);
-        if (r.kind === 'abort') return;
-        if (r.kind !== 'ok') {
-          sayError(`Chapter ${c + 1} paused: ${r.msg}`);
-          return;
-        }
-        const pcmObj = toPcm(r.d);
-        if (!parts.length) rate = pcmObj.rate;
-        parts.push(pcmObj.pcm);
-        if (i < items.length - 1) await sleep(pauseSec * 1000);
-      }
-
-      const audioBlob =
-        cfg.format === 'mp3'
-          ? await encodeMp3Blob(parts, rate, silMs, cfg.mp3Kbps)
-          : wavBlob(parts, rate, silMs);
-
-      const segments = buildSubtitleSegments(items, parts, rate, silMs);
-      const srtText = formatSubtitles(segments, 'srt');
-
-      const pad = String(c + 1).padStart(2, '0');
-      const chapterSlug = cleanTitleSlug(chapter.title) || `chapter-${c + 1}`;
-      const audioFilename = `${pad}-${chapterSlug}.${cfg.format}`;
-      const srtFilename = `${pad}-${chapterSlug}.srt`;
-
-      zip.file(audioFilename, audioBlob);
-      zip.file(srtFilename, srtText);
-      tocLines.push(`${pad}. ${chapter.title} -> ${audioFilename} + ${srtFilename}`);
-
-      const pct = Math.round(((c + 1) * 100) / detectedChapters.length);
-      progEl.value = pct;
-      progEl.setAttribute('aria-valuetext', `${pct} percent (${c + 1} of ${detectedChapters.length} chapters)`);
-    }
-
-    zip.file('00-chapters-index.txt', tocLines.join('\n') + '\n');
-    say('Packaging chapters & synced subtitles into ZIP archive…');
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const zipStem = cleanTitleSlug($<HTMLInputElement>('#audioTitle').value || loadedDocTitle) || 'voice-studio';
-    const zipName = `${zipStem}-audiobook.zip`;
-
-    const tmpUrl = URL.createObjectURL(zipBlob);
-    const a = document.createElement('a');
-    a.href = tmpUrl;
-    a.download = zipName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(tmpUrl), 60000);
-    say(`Finished! Downloaded ${zipName} with ${detectedChapters.length} chapters and synced .SRT subtitles.`);
-  } catch {
-    sayError('Audiobook ZIP export encountered an unexpected error. Try lowering Chapters/chunks or export chapters individually.');
-  } finally {
-    running = false;
-    ctl = null;
-    progEl.value = 0;
-    progEl.hidden = true;
-    ui();
-  }
-};
-
+/* ---- Creator Studio Templates, Podcast Writer, Translator & PDF Agent ---- */
 const CREATOR_TEMPLATES: Record<
   string,
   { title: string; mode: GenerationMode; style: string; text: string }
@@ -4296,38 +3359,17 @@ const CREATOR_TEMPLATES: Record<
 };
 
 function setStudioStatus(msg: string) {
-  $('#studioErr').textContent = '';
-  $('#studioStatus').textContent = msg;
+  const errEl = byId('studioErr');
+  const stEl = byId('studioStatus');
+  if (errEl) errEl.textContent = '';
+  if (stEl) stEl.textContent = msg;
 }
 function setStudioErr(msg: string) {
-  $('#studioStatus').textContent = '';
-  $('#studioErr').textContent = msg;
+  const stEl = byId('studioStatus');
+  const errEl = byId('studioErr');
+  if (stEl) stEl.textContent = '';
+  if (errEl) errEl.textContent = msg;
 }
-
-$('#applyTemplateBtn').onclick = () => {
-  const key = $<HTMLSelectElement>('#templateSelect').value;
-  const tpl = CREATOR_TEMPLATES[key];
-  if (!tpl) return;
-  const current = $<HTMLTextAreaElement>('#text').value.trim();
-  if (current && currentTextOrigin !== 'sample' && !sampleReplaceArmed) {
-    sampleReplaceArmed = true;
-    setStudioStatus('Your Speech Studio editor already has text. Press Load selected template again to replace it.');
-    return;
-  }
-  cfg.mode = tpl.mode;
-  cfg.style = tpl.style;
-  $<HTMLSelectElement>('#mode').value = tpl.mode;
-  $<HTMLInputElement>('#style').value = tpl.style;
-  syncStylePresetSelect(tpl.style);
-  syncOptionVisibility();
-  store.set('vs.cfg', cfg);
-  loadedDocTitle = '';
-  $<HTMLInputElement>('#audioTitle').value = tpl.title;
-  setText(tpl.text, 'sample');
-  setStudioStatus(
-    `Loaded "${tpl.title}" (${tpl.mode === 'dialogue' ? '2-speaker dialogue' : 'single voice'}). Open Speech Studio or generate audio below.`
-  );
-};
 
 async function callByokStudioText(systemInstruction: string, prompt: string, key: string): Promise<string> {
   const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
@@ -4458,12 +3500,16 @@ async function runStudioAction(
 }
 
 function setPdfAgentStatus(msg: string) {
-  $('#pdfAgentErr').textContent = '';
-  $('#pdfAgentStatus').textContent = msg;
+  const errEl = byId('pdfAgentErr');
+  const stEl = byId('pdfAgentStatus');
+  if (errEl) errEl.textContent = '';
+  if (stEl) stEl.textContent = msg;
 }
 function setPdfAgentErr(msg: string) {
-  $('#pdfAgentStatus').textContent = '';
-  $('#pdfAgentErr').textContent = msg;
+  const stEl = byId('pdfAgentStatus');
+  const errEl = byId('pdfAgentErr');
+  if (stEl) stEl.textContent = '';
+  if (errEl) errEl.textContent = msg;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -4480,19 +3526,19 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 async function runPdfRecordingAgent(forceLoadOnly = false) {
-  const userPrompt = $<HTMLInputElement>('#pdfAgentPrompt').value.trim();
-  const outputMode = ($<HTMLSelectElement>('#pdfAgentOutputStyle').value || 'narrated') as PdfAgentOutputMode;
-  const shouldRecord = !forceLoadOnly && $<HTMLInputElement>('#pdfAgentAutoRecord').checked;
-  const editorText = $<HTMLTextAreaElement>('#text').value.trim();
+  const userPrompt = byId<HTMLInputElement>('pdfAgentPrompt')?.value.trim() || '';
+  const outputMode = (byId<HTMLSelectElement>('pdfAgentOutputStyle')?.value || 'narrated') as PdfAgentOutputMode;
+  const shouldRecord = !forceLoadOnly && Boolean(byId<HTMLInputElement>('pdfAgentAutoRecord')?.checked);
+  const editorText = getEditorTextValue().trim();
 
   if (!loadedFile && !loadedPagesText.length && !detectedChapters.length && !editorText) {
-    setPdfAgentErr('Load a PDF or document first (or paste notes in Step 2) before running the agent.');
-    $('#pdfAgentPickFileBtn').focus();
+    setPdfAgentErr('Load a PDF or document first before extracting a section.');
+    byId('pdfAgentPickFileBtn')?.focus();
     return;
   }
   if (!userPrompt) {
-    setPdfAgentErr('Describe which chapter, topic, or pages you want to extract and record.');
-    $('#pdfAgentPrompt').focus();
+    setPdfAgentErr('Describe which chapter, topic, or pages you want to extract and convert.');
+    byId('pdfAgentPrompt')?.focus();
     return;
   }
 
@@ -4525,7 +3571,7 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
 
     if (isScannedPdf && loadedFile) {
       if (!byok && !canUseServerAi) {
-        throw new Error('Scanned image PDFs require Gemini Vision. Please sign in or enable your own Gemini API key in Step 1.');
+        throw new Error('Scanned image PDFs require sign-in or your own Gemini API key in Step 1.');
       }
 
       setPdfAgentStatus('Reading scanned PDF pages with Gemini Vision…');
@@ -4673,7 +3719,7 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
             );
             rawExcerpt = sliced.text;
             resolvedTitle = plan.sectionTitle || resolvedTitle;
-            methodNote = `Gemini index (pages ${sliced.pagesUsed[0] || plan.startPage}–${sliced.pagesUsed[sliced.pagesUsed.length - 1] || plan.endPage})`;
+            methodNote = `Index (pages ${sliced.pagesUsed[0] || plan.startPage}–${sliced.pagesUsed[sliced.pagesUsed.length - 1] || plan.endPage})`;
           } else {
             const matched = localPdfAgentFallback(userPrompt, [], activeChapters, []);
             rawExcerpt = matched.text || editorText;
@@ -4742,14 +3788,15 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
 
     if (outputMode === 'podcast') {
       cfg.mode = 'dialogue';
-      $<HTMLSelectElement>('#mode').value = 'dialogue';
+      const modeEl = byId<HTMLSelectElement>('mode');
+      if (modeEl) modeEl.value = 'dialogue';
       syncOptionVisibility();
       store.set('vs.cfg', cfg);
     }
 
     const cleanTitle = resolvedTitle.replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
     if (cleanTitle) {
-      $<HTMLInputElement>('#audioTitle').value = cleanTitle;
+      setAudioTitleValue(cleanTitle);
     }
     setText(extractedScript, 'doc');
     setPdfAgentStatus(
@@ -4757,13 +3804,14 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
     );
 
     if (shouldRecord) {
+      if (!requireSignedInUser()) return;
       navigateToPage('tool', false);
       say(`Extracted "${cleanTitle}". Starting audio recording…`);
-      $('#gen').click();
-    } else {
+      byId('gen')?.click();
+    } else if (currentUser && currentUser.emailVerified) {
       navigateToPage('tool', false);
       say(`Extracted "${cleanTitle}" into the Speech Studio editor.`);
-      $('#text').focus();
+      byId('text')?.focus();
     }
   } catch (err) {
     setPdfAgentErr(err instanceof Error ? err.message : 'PDF Recording Agent could not process this request.');
@@ -4772,95 +3820,6 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
     ui();
   }
 }
-
-$('#pdfAgentPickFileBtn').onclick = () => $<HTMLInputElement>('#file').click();
-$('#pdfAgentRunBtn').onclick = () => void runPdfRecordingAgent(false);
-$('#pdfAgentLoadOnlyBtn').onclick = () => void runPdfRecordingAgent(true);
-
-$('#genPodcastBtn').onclick = async () => {
-  if (!isByokActive() && !requireSignedInUser()) return;
-  const topicInput = $<HTMLInputElement>('#podcastTopic').value.trim();
-  const editorText = $<HTMLTextAreaElement>('#text').value.trim();
-  const topic = topicInput || editorText.slice(0, 5000);
-  const length = $<HTMLSelectElement>('#podcastLen').value;
-
-  if (topic.length < 3) {
-    setStudioErr('Enter a podcast topic above, or paste notes in Speech Studio first.');
-    $('#podcastTopic').focus();
-    return;
-  }
-
-  studioBusy = true;
-  ui();
-  setStudioStatus('Generating 2-speaker podcast script…');
-  try {
-    const script = await runStudioAction({ action: 'podcast', topic, length });
-    cfg.mode = 'dialogue';
-    $<HTMLSelectElement>('#mode').value = 'dialogue';
-    syncOptionVisibility();
-    store.set('vs.cfg', cfg);
-    setText(script, 'user');
-    if (topicInput && !$<HTMLInputElement>('#audioTitle').value.trim()) {
-      $<HTMLInputElement>('#audioTitle').value = `${topicInput.slice(0, 50)} Podcast`;
-    }
-    setStudioStatus(
-      `Generated 2-speaker podcast script (${[...script].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
-    );
-  } catch (err) {
-    setStudioErr(err instanceof Error ? err.message : 'Could not generate podcast script.');
-  } finally {
-    studioBusy = false;
-    ui();
-  }
-};
-
-$('#translateBtn').onclick = async () => {
-  if (!isByokActive() && !requireSignedInUser()) return;
-  const currentText = $<HTMLTextAreaElement>('#text').value.trim();
-  const targetLang = $<HTMLSelectElement>('#translateLang').value;
-  if (!currentText) {
-    setStudioErr('Enter or load text in Speech Studio first before translating.');
-    return;
-  }
-
-  studioBusy = true;
-  ui();
-  setStudioStatus(`Translating & adapting script into ${targetLang}…`);
-  try {
-    const translated = await runStudioAction({
-      action: 'translate',
-      text: currentText.slice(0, 8000),
-      targetLang,
-    });
-    setText(translated, 'user');
-    setStudioStatus(
-      `Translated into ${targetLang} (${[...translated].length.toLocaleString()} chars). Press Open script in Speech Studio or Generate audio now.`
-    );
-  } catch (err) {
-    setStudioErr(err instanceof Error ? err.message : 'Could not translate text.');
-  } finally {
-    studioBusy = false;
-    ui();
-  }
-};
-
-$('#sendStudioToSpeechBtn').onclick = () => {
-  if (!$<HTMLTextAreaElement>('#text').value.trim()) {
-    setStudioErr('Load a template, generate a podcast script, or enter text first.');
-    return;
-  }
-  navigateToPage('tool', false);
-  $('#text').focus();
-};
-
-$('#recordFromStudioBtn').onclick = () => {
-  if (!$<HTMLTextAreaElement>('#text').value.trim()) {
-    setStudioErr('Load a template, generate a podcast script, or enter text first.');
-    return;
-  }
-  navigateToPage('tool', false);
-  $('#gen').click();
-};
 
 function bindReferralUi() {
   const copyBtn = document.getElementById('copyRefBtn');
@@ -4903,11 +3862,15 @@ function bindReferralUi() {
 
 /* ---- Init ---- */
 bindA11ySettings();
-bindSettings();
-bindContactForm();
 bindPwaAndShare();
-bindReferralUi();
-drawDict();
+bindCurrentOutletControls();
 route(false);
 ui();
 void loadPublicSiteStatus();
+
+// Only boot Firebase SDK automatically if the browser already holds a signed-in Firebase session
+void hasLikelyFirebaseAuthSession().then((hasSession) => {
+  if (hasSession) {
+    void ensureAuthListener(handleAuthUser);
+  }
+});

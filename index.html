@@ -4,186 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; manifest-src 'self'; worker-src 'self' blob:; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebaseinstallations.googleapis.com https://apis.google.com https://www.googleapis.com https://www.gstatic.com https://accounts.google.com https://generativelanguage.googleapis.com; img-src 'self' data: blob: https://www.gstatic.com https://*.googleusercontent.com; media-src blob:; font-src 'self' data:; base-uri 'none'; form-action 'none'">
-<meta name="theme-color" content="#1d4ed8">
+<meta name="theme-color" content="#0F2A44">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <meta name="application-name" content="Voice Studio">
 <meta name="author" content="Moutter Rasool">
-<meta name="keywords" content="PDF to audio converter, Urdu text to speech online, convert PDF to MP3, EPUB to MP3 audiobook, Word document to audio, Urdu English bilingual text to speech, scanned PDF to audio, study notes MP3 for WhatsApp, SRT VTT subtitle generator, Urdu subtitle video maker">
 <link id="canonicalLink" rel="canonical" href="https://voice-studio-three.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Voice Studio">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="ur_PK">
 <meta id="ogUrl" property="og:url" content="https://voice-studio-three.vercel.app/">
-<meta property="og:title" content="Voice Studio: Turn PDFs, Books &amp; Urdu Notes into Clean MP3 Audio">
-<meta property="og:description" content="Convert PDFs, EPUB books, Word files, and Urdu or English notes into clear MP3 audio, synced subtitles, and study videos—privately in your browser.">
+<meta property="og:title" content="Voice Studio: Turn PDFs and Books into Urdu and English Audio">
+<meta property="og:description" content="Upload a PDF, EPUB, or Word file and get clean MP3 audio in Urdu or English. Free daily use, private in your browser, built for students.">
 <meta property="og:image" content="https://voice-studio-three.vercel.app/og-card.jpg">
-<meta property="og:image:alt" content="Voice Studio – PDF, EPUB, Word, and Urdu/English Text to MP3 Audio &amp; Subtitled Video">
+<meta property="og:image:alt" content="Kitaab se Awaaz — Voice Studio turning open textbooks into clean Urdu and English audio">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Voice Studio: Turn PDFs, Books &amp; Urdu Notes into Clean MP3 Audio">
-<meta name="twitter:description" content="Convert PDFs, EPUB books, Word files, and Urdu or English notes into clear MP3 audio, synced subtitles, and study videos—privately in your browser.">
+<meta name="twitter:title" content="Voice Studio: Turn PDFs and Books into Urdu and English Audio">
+<meta name="twitter:description" content="Upload a PDF, EPUB, or Word file and get clean MP3 audio in Urdu or English. Free daily use, private in your browser, built for students.">
 <meta name="twitter:image" content="https://voice-studio-three.vercel.app/og-card.jpg">
-<meta name="twitter:image:alt" content="Voice Studio – PDF, EPUB &amp; Urdu/English Docs to MP3 Audio &amp; Video">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d4ed8'/%3E%3Cpath d='M9 12v8M14 8v16M19 11v10M24 14v4' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
-<title>Voice Studio: Turn PDFs, Books &amp; Urdu Notes into Clean MP3 Audio</title>
-<meta name="description" content="Convert PDFs, EPUB books, Word files, and Urdu or English notes into clear MP3 audio, synced subtitles, and study videos—privately in your browser.">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "WebApplication",
-      "@id": "https://voice-studio-three.vercel.app/#webapp",
-      "name": "Voice Studio",
-      "alternateName": "Voice Studio PDF to Audio & Urdu Text-to-Speech Converter",
-      "url": "https://voice-studio-three.vercel.app/",
-      "image": "https://voice-studio-three.vercel.app/og-card.jpg",
-      "applicationCategory": "MultimediaApplication",
-      "applicationSubCategory": "DocumentToSpeechAndAudiobookConverter",
-      "operatingSystem": "All",
-      "browserRequirements": "Requires a modern web browser with JavaScript enabled",
-      "inLanguage": ["en", "ur", "ar", "hi", "de", "es", "fr"],
-      "featureList": [
-        "Private in-browser reading for PDF, EPUB, Word DOCX, Markdown, and TXT files with zero server file storage",
-        "Automatic removal of repeating page numbers and headers before creating study audio",
-        "Small 64 kbps MP3 downloads (~28 MB per hour) for mobile data and WhatsApp sharing, plus 128 kbps MP3 and WAV",
-        "Chapter splitting and Audiobook ZIP downloads with synced .SRT and .VTT captions",
-        "Video export in 16:9, 9:16 Reels, and 1:1 square with clear RTL Urdu and LTR English subtitles",
-        "Natural Urdu, English, Arabic, and Hindi voices plus two-speaker Host/Guest dialogue mode",
-        "Custom Pronunciation Dictionary saved on your device for names and technical terms",
-        "3,000 free characters daily for verified accounts plus optional personal Gemini API key mode"
-      ],
-      "description": "Free accessible PDF to MP3 and Urdu/English text-to-speech tool that skips repeating page numbers, fixes custom pronunciations, and exports compact audiobooks, .SRT/.VTT captions, and subtitled study videos.",
-      "author": {
-        "@type": "Person",
-        "@id": "https://voice-studio-three.vercel.app/#author",
-        "name": "Moutter Rasool",
-        "jobTitle": "Software Developer",
-        "knowsAbout": ["Document Text Extraction", "Bilingual Text-to-Speech", "Web Audio Processing", "Subtitle Synchronization"],
-        "address": {
-          "@type": "PostalAddress",
-          "addressLocality": "Faisalabad",
-          "addressCountry": "PK"
-        },
-        "affiliation": {
-          "@type": "Organization",
-          "name": "Voice Studio"
-        }
-      },
-      "publisher": {
-        "@type": "Person",
-        "name": "Moutter Rasool",
-        "url": "https://voice-studio-three.vercel.app/"
-      },
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
-    },
-    {
-      "@type": "BreadcrumbList",
-      "itemListElement": [
-        { "@type": "ListItem", "position": 1, "name": "Speech Studio", "item": "https://voice-studio-three.vercel.app/" },
-        { "@type": "ListItem", "position": 2, "name": "PDF & Book to Audio", "item": "https://voice-studio-three.vercel.app/pdf-to-audio" },
-        { "@type": "ListItem", "position": 3, "name": "Podcast & Translator", "item": "https://voice-studio-three.vercel.app/podcast-studio" },
-        { "@type": "ListItem", "position": 4, "name": "Urdu & English TTS", "item": "https://voice-studio-three.vercel.app/urdu-tts" },
-        { "@type": "ListItem", "position": 5, "name": "Video & Subtitles", "item": "https://voice-studio-three.vercel.app/video-subtitles" },
-        { "@type": "ListItem", "position": 6, "name": "Guides & Workflows", "item": "https://voice-studio-three.vercel.app/guides" },
-        { "@type": "ListItem", "position": 7, "name": "Supported Formats", "item": "https://voice-studio-three.vercel.app/formats" },
-        { "@type": "ListItem", "position": 8, "name": "FAQ", "item": "https://voice-studio-three.vercel.app/faq" }
-      ]
-    },
-    {
-      "@type": "HowTo",
-      "name": "How to convert a multi-page PDF, EPUB, or DOCX file into one MP3 audiobook with synced subtitles",
-      "description": "Strip academic page clutter locally, apply phonetic dictionary replacements, and render one continuous MP3, chapter ZIP, or subtitled video.",
-      "totalTime": "PT2M",
-      "step": [
-        {
-          "@type": "HowToStep",
-          "name": "Verify your account or enable local Unlimited Mode",
-          "text": "Sign in with Google or verify your email to activate 3,000 free characters daily, or paste a personal Google AI Studio key in Step 1 (stored only in your browser)."
-        },
-        {
-          "@type": "HowToStep",
-          "name": "Load a file or build a 2-speaker script",
-          "text": "Open a PDF, EPUB, DOCX, Markdown, or TXT file—or switch to the Podcast & Translator studio for a Host/Guest script or translation. Document parsing stays strictly inside browser memory."
-        },
-        {
-          "@type": "HowToStep",
-          "name": "Set pronunciation rules, voice, and bitrate",
-          "text": "Choose from 30 voices, set Pronunciation Dictionary replacements for names or acronyms, and select 64 kbps MP3 (~28 MB/hr) or 24 kHz WAV."
-        },
-        {
-          "@type": "HowToStep",
-          "name": "Render, download subtitles, or export video",
-          "text": "Preview 200 characters first, then export your full MP3, multi-chapter Audiobook ZIP, .SRT/.VTT subtitles, or burned-in subtitle video."
-        }
-      ]
-    },
-    {
-      "@type": "FAQPage",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "How does Voice Studio prevent page numbers and headers from interrupting study audio?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "When Smart Document Cleanup is enabled, Voice Studio checks your PDF or EPUB on your device, skips repeated page headers and footers, removes standalone page numbers, and rejoins split words before generating audio."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "How large is a one-hour MP3 lecture file and can it be shared on WhatsApp?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "At the default 64 kbps speech MP3 setting, one hour of audio is roughly 28 MB—compact enough for fast mobile downloads and WhatsApp or Telegram study groups."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Does Voice Studio handle mixed Urdu and English documents accurately?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes. Both Urdu and English sentences in the same document are read naturally in one pass, and you can add custom pronunciation rules for acronyms or local names without editing your source notes."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Are my uploaded PDF, EPUB, or Word files stored on external servers?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "No. Your source files stay inside your browser and are never saved on our servers."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "How do burned-in subtitles and 16:9 / 9:16 video exports work?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Every finished recording builds synced .SRT and .VTT captions automatically and can export 16:9, 9:16 vertical, or 1:1 square videos with clear RTL Urdu and LTR English subtitles."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Can I export multi-chapter books and synced video subtitles?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes. Books and multi-heading documents split into selectable chapters so you can download individual tracks or an Audiobook ZIP with numbered MP3s and synced .SRT/.VTT captions."
-          }
-        }
-      ]
-    }
-  ]
-}
+<meta name="twitter:image:alt" content="Kitaab se Awaaz — Voice Studio turning open textbooks into clean Urdu and English audio">
+<title>Voice Studio: Turn PDFs and Books into Urdu and English Audio</title>
+<meta name="description" content="Upload a PDF, EPUB, or Word file and get clean MP3 audio in Urdu or English. Free daily use, private in your browser, built for students.">
+<script id="ldJsonScript" type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"WebApplication","@id":"https://voice-studio-three.vercel.app/#webapp","name":"Voice Studio","alternateName":"Kitaab se Awaaz — Voice Studio","url":"https://voice-studio-three.vercel.app/","image":"https://voice-studio-three.vercel.app/og-card.jpg","applicationCategory":"MultimediaApplication","operatingSystem":"All","browserRequirements":"Requires a modern web browser with JavaScript enabled","inLanguage":["en","ur","ar","hi","de","es","fr"],"description":"Turn PDF textbooks, EPUB books, Word files, and Urdu or English study notes into clean MP3 audio, synced subtitles, and study videos privately in your browser.","creator":{"@type":"Person","@id":"https://voice-studio-three.vercel.app/about#founder","name":"Moutter Rasool","url":"https://voice-studio-three.vercel.app/about","jobTitle":"Software Developer","address":{"@type":"PostalAddress","addressLocality":"Faisalabad","addressCountry":"PK"}},"author":{"@id":"https://voice-studio-three.vercel.app/about#founder"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}]}
 </script>
 <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-<noscript><p class="noscript-msg">Voice Studio needs JavaScript to work.</p></noscript>
+<noscript><p class="noscript-msg">Voice Studio works best with JavaScript enabled for audio playback and file conversion in your browser.</p></noscript>
 <a class="skip" href="#main">Skip to main content</a>
 
 <header class="site-header" id="siteHeader">
@@ -219,11 +71,13 @@
       </button>
 
       <a class="brand" href="/" data-page="tool">
-        <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect width="32" height="32" rx="7" fill="#1d4ed8"/>
-          <path d="M9 12v8M14 8v16M19 11v10M24 14v4" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+        <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect width="32" height="32" rx="7" fill="#0F2A44"/>
+          <path d="M6.5 9.5C9.8 8.3 13 8.8 15.5 10.2V23C13 21.6 9.8 21.1 6.5 22.3Z" fill="#F6EFE3"/>
+          <path d="M16.5 10.2C19 8.8 22.2 8.3 25.5 9.5V22.3C22.2 21.1 19 21.6 16.5 23Z" fill="#F6EFE3" fill-opacity="0.92"/>
+          <path d="M19.2 14.2V18.2M21.8 12.2V20.2M24.4 13.7V18.7" stroke="#E8A33D" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
-        <span>Voice Studio</span>
+        <span class="brand-title">Voice Studio</span>
       </a>
     </div>
 
@@ -255,9 +109,9 @@
     <h3 class="a11y-group-title">Perceivable: Contrast &amp; Text</h3>
     <label for="a11yContrast">Contrast &amp; theme</label>
     <select id="a11yContrast">
-      <option value="system">System default</option>
-      <option value="light">Standard light</option>
-      <option value="dark">Dark mode</option>
+      <option value="system">Paper Cream &amp; System</option>
+      <option value="light">Warm Paper Cream (Light)</option>
+      <option value="dark">Evening Study (Dark)</option>
       <option value="hc-dark">High contrast (Black &amp; Yellow)</option>
       <option value="hc-light">High contrast (White &amp; Black)</option>
     </select>
@@ -274,7 +128,7 @@
 
     <label for="a11yFontFamily">Reading font</label>
     <select id="a11yFontFamily">
-      <option value="default">Default sans-serif</option>
+      <option value="default">Default (Inter &amp; Fraunces)</option>
       <option value="readable">Verdana / Tahoma</option>
       <option value="serif">Georgia serif</option>
       <option value="mono">Monospace</option>
@@ -325,21 +179,21 @@
 
   <nav class="drawer-nav" aria-label="Main pages">
     <p class="drawer-section-label" aria-hidden="true">Studios</p>
-    <a href="/" data-page="tool">Speech Studio (Converter)</a>
-    <a href="/pdf-to-audio" data-page="pdfStudio">AI PDF &amp; Book Studio</a>
+    <a href="/" data-page="tool">Speech Studio (Home)</a>
+    <a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book to Audio</a>
     <a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Translator</a>
-    <a href="/account" data-page="account" id="navAccountLink" hidden>My Account</a>
+    <a href="/account" data-page="account" id="navAccountLink" hidden></a>
     <a href="/admin" data-page="admin" id="navAdminLink" hidden></a>
 
     <p class="drawer-section-label" aria-hidden="true">Guides &amp; Documentation</p>
     <a href="/urdu-tts" data-page="urduTts">Urdu &amp; English TTS</a>
     <a href="/video-subtitles" data-page="videoSubtitles">Video &amp; Subtitles</a>
-    <a href="/guides" data-page="guides">Workflows &amp; Recipes</a>
+    <a href="/guides" data-page="guides">Guides &amp; Workflows</a>
     <a href="/formats" data-page="formats">Supported Formats</a>
     <a href="/faq" data-page="faq">FAQ</a>
 
     <p class="drawer-section-label" aria-hidden="true">About &amp; Legal</p>
-    <a href="/about" data-page="about">About Developer</a>
+    <a href="/about" data-page="about">About Voice Studio</a>
     <a href="/contact" data-page="contact">Contact</a>
     <a href="/privacy" data-page="privacy">Privacy Policy</a>
     <a href="/terms" data-page="terms">Terms &amp; Conditions</a>
@@ -392,9 +246,9 @@
     <h3>3. Video with Burned-In Subtitles</h3>
     <label for="videoAspect">Aspect ratio &amp; target layout</label>
     <select id="videoAspect">
-      <option value="16:9">1280×720 Landscape 16:9 (YouTube &amp; Courses)</option>
-      <option value="9:16">720×1280 Vertical 9:16 (Reels, Shorts &amp; TikTok)</option>
-      <option value="1:1">720×720 Square 1:1 (Social feeds)</option>
+      <option value="16:9">1280x720 Landscape 16:9 (YouTube &amp; Courses)</option>
+      <option value="9:16">720x1280 Vertical 9:16 (Reels, Shorts &amp; TikTok)</option>
+      <option value="1:1">720x720 Square 1:1 (Social feeds)</option>
     </select>
     <div class="btn-group">
       <button id="dlVideoBtn" type="button" class="sec" hidden>Download video with burned-in subtitles</button>
@@ -411,844 +265,8 @@
     <p id="siteNoticeText" class="note-box" role="status" aria-live="polite"></p>
   </div>
   <div class="wrap">
-    <section id="tool" data-title="Converter">
-
-      <div id="authGate">
-        <div class="auth-hero-split">
-          <div class="hero-copy-col">
-            <div>
-              <p class="hero-meta-line">
-                <span>Urdu &amp; English Audio</span>
-                <span aria-hidden="true">·</span>
-                <span>3,000 Free Characters Daily</span>
-                <span aria-hidden="true">·</span>
-                <span>Private in Your Browser</span>
-              </p>
-              <h1 tabindex="-1">Turn your PDFs and books into clean audio, in Urdu and English.</h1>
-              <p class="lead">Upload a PDF, Word file, EPUB book, or study notes. Voice Studio automatically removes repeating page numbers and headers and turns your text into clear MP3 audio, subtitles, and study videos.</p>
-              <div class="btn-group">
-                <button id="startConvertingFreeBtn" type="button">Start converting free</button>
-              </div>
-            </div>
-
-            <div class="how-it-works-box" aria-labelledby="howItWorksHeading">
-              <h2 id="howItWorksHeading">How it works in 3 simple steps</h2>
-              <ol class="how-steps-grid">
-                <li>
-                  <span class="capability-index">01. Upload</span>
-                  <strong>Add a PDF, book, or notes</strong>
-                  <p>Open any PDF, EPUB, Word file, or paste Urdu and English text directly.</p>
-                </li>
-                <li>
-                  <span class="capability-index">02. Choose voice</span>
-                  <strong>Pick a narrator &amp; style</strong>
-                  <p>Select single-voice reading or two speakers, and fix custom pronunciations.</p>
-                </li>
-                <li>
-                  <span class="capability-index">03. Download</span>
-                  <strong>Save MP3, captions, or video</strong>
-                  <p>Export small ~28 MB/hr MP3s for WhatsApp, .SRT subtitles, or study videos.</p>
-                </li>
-              </ol>
-              <p class="urdu-rtl-sample" dir="rtl" lang="ur">اردو اور انگریزی کتابوں اور نوٹس کو صاف آڈیو اور سب ٹائٹلز میں تبدیل کریں۔</p>
-            </div>
-          </div>
-
-          <div class="card" id="authCard" tabindex="-1">
-            <h2>Open the Speech Studio</h2>
-            <p class="hint">Sign in to unlock your 3,000 free characters every day, chapter downloads, and video export.</p>
-
-            <div class="btn-group">
-              <button id="googleSignIn" type="button" class="full">Continue with Google</button>
-            </div>
-
-            <div class="auth-tabs" role="group" aria-label="Email authentication mode">
-              <button id="tabSignIn" type="button" aria-pressed="true">Sign in with Email</button>
-              <button id="tabSignUp" type="button" aria-pressed="false">Create Account</button>
-            </div>
-
-            <form id="authForm" novalidate>
-              <div id="authNameWrap" hidden>
-                <label for="authName">Full name</label>
-                <input id="authName" type="text" autocomplete="name" maxlength="120" placeholder="Your name">
-              </div>
-              <label for="authEmail">Email address</label>
-              <input id="authEmail" type="email" autocomplete="email" required placeholder="you@example.com">
-              <label for="authPass">Password (minimum 6 characters)</label>
-              <input id="authPass" type="password" autocomplete="current-password" minlength="6" required placeholder="Enter password">
-              <div class="btn-group">
-                <button id="authSubmit" type="submit">Sign in</button>
-                <button id="authReset" type="button" class="sec">Reset password</button>
-              </div>
-            </form>
-
-            <p id="authMsg" class="hint" role="status" aria-live="polite"></p>
-            <p class="trust-note"><strong>Your files stay on your device:</strong> PDF, EPUB, and Word files are read inside your browser, never stored on our servers. Built by Moutter Rasool in Faisalabad, Pakistan.</p>
-          </div>
-        </div>
-
-        <section class="seo-band" aria-labelledby="workflowsLandingHeading">
-          <h2 id="workflowsLandingHeading">What You Can Create with Voice Studio</h2>
-          <p class="lead">Built for university students, teachers, and creators working with long textbooks and bilingual notes.</p>
-
-          <div class="capability-ledger">
-            <article class="capability-card capability-lead">
-              <div>
-                <span class="capability-index">01. Books &amp; Study PDFs</span>
-                <h3><a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book Chapter Studio</a></h3>
-                <p>Pick only the chapters or page numbers you need—even from scanned PDFs—so you do not waste daily allowance on headers, footers, or index pages.</p>
-              </div>
-              <ul class="capability-facts" aria-label="Document audio highlights">
-                <li><span>Files supported</span><strong>PDF, EPUB, DOCX, MD, TXT</strong></li>
-                <li><span>Smart cleanup</span><strong>Skips page numbers &amp; headers</strong></li>
-                <li><span>Small MP3 size</span><strong class="mono-num">~28 MB / hour</strong></li>
-                <li><span>High-quality WAV</span><strong class="mono-num">~170 MB / hour</strong></li>
-              </ul>
-            </article>
-
-            <article class="capability-card">
-              <span class="capability-index">02. Bilingual &amp; Podcasts</span>
-              <h3><a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Speech Translator</a></h3>
-              <p>Turn lecture notes into natural two-speaker discussions or translate scripts across Urdu, English, Arabic, Hindi, Spanish, French, and German with custom pronunciation rules.</p>
-            </article>
-
-            <article class="capability-card">
-              <span class="capability-index">03. Subtitled Study Videos</span>
-              <h3><a href="/video-subtitles" data-page="videoSubtitles">Subtitles &amp; Video Export</a></h3>
-              <p>Download synced .SRT and .VTT captions or save 16:9, 9:16 Reels, and 1:1 square videos with clear right-to-left Urdu and English subtitles.</p>
-            </article>
-          </div>
-
-          <p class="hint">Explore guides: <a href="/urdu-tts" data-page="urduTts">Urdu &amp; English TTS</a> · <a href="/guides" data-page="guides">Workflows &amp; Recipes</a> · <a href="/formats" data-page="formats">Supported Formats</a> · <a href="/faq" data-page="faq">FAQ</a></p>
-        </section>
-      </div>
-
-      <div class="card" id="authVerifyBox" tabindex="-1" hidden>
-        <h1 tabindex="-1">Verify your email address</h1>
-        <p id="verifyPromptText" class="note-box"></p>
-        <div class="btn-group">
-          <button id="refreshVerify" type="button">I verified — refresh status</button>
-          <button id="resendVerify" type="button" class="sec">Resend verification email</button>
-          <button id="signOutVerify" type="button" class="dng">Sign out</button>
-        </div>
-        <p id="verifyMsg" class="hint" role="status" aria-live="polite"></p>
-      </div>
-
-      <div id="converterWorkspace" hidden>
-        <h1 tabindex="-1">Speech &amp; Audiobook Conversion Workspace</h1>
-        <p class="lead">Select your narrator voice and export bitrate below, then drop or paste your document to build clean MP3, WAV, or chapter ZIP audio.</p>
-
-        <div class="card compact-bar" id="workspaceBalanceBar">
-          <p class="account-meta" id="workspaceBalanceText">Checking balance…</p>
-          <p class="hint" id="backendNotice" hidden></p>
-        </div>
-
-        <div class="card">
-          <h2>1. Voice, model &amp; speaking style</h2>
-          <div class="row">
-            <div>
-              <label id="voiceLabel" for="voice">Voice</label>
-              <select id="voice"></select>
-            </div>
-            <div id="voiceBWrap" hidden>
-              <label for="voiceB">Speaker B voice</label>
-              <select id="voiceB"></select>
-            </div>
-            <div>
-              <label for="mode">Narration mode</label>
-              <select id="mode">
-                <option value="single">Single voice (books, articles)</option>
-                <option value="dialogue">Dialogue / 2 speakers (podcasts)</option>
-              </select>
-            </div>
-            <div>
-              <label for="model">Speech model</label>
-              <select id="model"></select>
-            </div>
-          </div>
-
-          <p id="dialogueHint" class="hint" hidden>Prefix lines with <strong>Host:</strong> / <strong>Guest:</strong> or <strong>A:</strong> / <strong>B:</strong> to switch speakers automatically.</p>
-
-          <label for="stylePreset">Quick speaking style preset</label>
-          <select id="stylePreset">
-            <option value="">Standard natural delivery (no style override)</option>
-            <option value="slowly, clearly, and calmly">Slow, clear &amp; calm narrator</option>
-            <option value="warm, expressive audiobook storyteller">Warm audiobook storyteller</option>
-            <option value="clear, crisp news anchor">Clear, crisp news anchor</option>
-            <option value="measured, calm documentary narrator">Measured documentary narrator</option>
-            <option value="__custom__">Custom instruction (type in box below)</option>
-          </select>
-
-          <label for="style">Custom speaking style / tone (optional — guides delivery, never spoken aloud)</label>
-          <input id="style" placeholder="For example: slowly, clearly, and calmly" aria-describedby="styleHint">
-          <p id="styleHint" class="hint">Pick a quick preset above or type custom delivery notes here. Leave blank for standard natural delivery.</p>
-
-          <details class="panel" id="advancedSettingsPanel">
-            <summary id="advancedSummary">Audio format &amp; advanced settings (MP3 64 kbps)</summary>
-            <div class="row">
-              <div>
-                <label for="format">Audio output format</label>
-                <select id="format">
-                  <option value="mp3">MP3 (compressed, small file size)</option>
-                  <option value="wav">WAV (uncompressed PCM)</option>
-                </select>
-              </div>
-              <div id="mp3QualityWrap">
-                <label for="mp3Kbps">MP3 quality</label>
-                <select id="mp3Kbps">
-                  <option value="64">64 kbps (speech optimized, smallest)</option>
-                  <option value="128">128 kbps (higher fidelity)</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="row">
-              <div><label for="chunk">Characters per part</label><input id="chunk" type="number" min="300" max="3000" value="1800"></div>
-              <div><label for="pause">Pause between requests (seconds)</label><input id="pause" type="number" min="0" max="60" value="1"></div>
-              <div><label for="sil">Silence between parts (milliseconds)</label><input id="sil" type="number" min="0" max="3000" value="250"></div>
-            </div>
-          </details>
-
-          <details class="panel" id="byokPanel">
-            <summary id="byokSummary">Own Gemini API Key (optional Unlimited Mode)</summary>
-            <label class="inline-check">
-              <input id="byokEnabled" type="checkbox">
-              <span>Use My Own Free Gemini API Key (Unlimited Mode)</span>
-            </label>
-            <div id="byokWrap" hidden>
-              <label for="byokKey">Your Gemini API key (stored only in your browser)</label>
-              <input id="byokKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." aria-describedby="byokHint">
-              <div class="btn-group">
-                <button id="byokToggleVis" type="button" class="sec" aria-pressed="false">Show key</button>
-                <button id="byokClear" type="button" class="sec">Clear saved key</button>
-              </div>
-            </div>
-            <p id="byokHint" class="hint">Saved strictly in your browser’s localStorage and never sent to Firebase or our server. When enabled with a valid key, speech requests run directly from your browser and bypass the 3,000-character daily limit. Leave unchecked to use the built-in free allowance.</p>
-            <p id="byokStatus" class="hint" role="status" aria-live="polite"></p>
-          </details>
-
-          <details class="panel">
-            <summary id="dictSummary">Pronunciation dictionary (0 active rules)</summary>
-            <p class="hint">Fix how specific abbreviations, names, or non-English terms are spoken before audio is generated. Your original text stays untouched.</p>
-            <div class="row">
-              <div><label for="dictFind">Written text</label><input id="dictFind" placeholder="For example: Jieshuo or Dr."></div>
-              <div><label for="dictReplace">Spoken as</label><input id="dictReplace" placeholder="For example: Jay-shwoh or Doctor"></div>
-            </div>
-            <label class="inline-check">
-              <input id="dictWhole" type="checkbox" checked>
-              <span>Match whole word only</span>
-            </label>
-            <div class="btn-group">
-              <button id="addDict" type="button" class="sec">Add rule</button>
-              <button id="presetDict" type="button" class="sec">Add academic presets</button>
-            </div>
-            <p id="dictMsg" class="hint" role="status"></p>
-            <ul class="dict-list" id="dictList"></ul>
-          </details>
-        </div>
-
-        <div class="card">
-          <h2>2. Your text or document</h2>
-          <label class="inline-check">
-            <input id="cleanDocs" type="checkbox" checked>
-            <span>Smart document cleanup (remove standalone page numbers and repeated headers/footers from PDF &amp; EPUB files)</span>
-          </label>
-
-          <label for="text">Text to convert (or drop a PDF, DOCX, EPUB, TXT file below)</label>
-          <textarea id="text" dir="auto" placeholder="Type, paste, or drop a PDF, DOCX, EPUB, Markdown, or TXT file here (supports RTL Urdu &amp; LTR English)"></textarea>
-
-          <div class="btn-group">
-            <button id="load" type="button" class="sec">Load PDF, DOCX, EPUB or TXT</button>
-            <button id="paste" type="button" class="sec">Paste from clipboard</button>
-            <button id="voiceDemo" type="button" class="sec">Test selected voice</button>
-            <button id="sampleSingle" type="button" class="sec">Insert sample script</button>
-            <button id="sampleDialogue" type="button" class="sec" hidden>Insert sample dialogue</button>
-            <button id="detectChaptersBtn" type="button" class="sec">Split into chapters</button>
-            <button id="clear" type="button" class="sec">Clear text</button>
-          </div>
-          <input id="file" type="file" accept=".pdf,.docx,.epub,.txt,.md,text/plain,application/pdf,application/epub+zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden aria-label="Choose a PDF, Word DOCX, EPUB, or text file">
-          <p id="count" class="hint" aria-live="off">Characters: 0</p>
-
-          <div id="chaptersBox" class="chapters-box" hidden>
-            <p id="chaptersSummary" class="hint status-ok" role="status" aria-live="polite"></p>
-            <label for="chapterSelect">Detected chapters / book sections</label>
-            <select id="chapterSelect"></select>
-            <div class="btn-group">
-              <button id="loadChapterBtn" type="button" class="sec">Load selected chapter</button>
-              <button id="loadAllChaptersBtn" type="button" class="sec">Load full book text</button>
-              <button id="exportChaptersZipBtn" type="button">Export all chapters as Audiobook ZIP</button>
-            </div>
-          </div>
-
-          <div class="btn-group">
-            <button id="openPdfStudioShortcut" type="button" class="sec">Open AI PDF &amp; Book Studio</button>
-            <button id="openPodcastStudioShortcut" type="button" class="sec">Open Podcast &amp; Translator</button>
-          </div>
-
-          <label for="audioTitle">Audio title for download (optional — auto-named from document or text)</label>
-          <input id="audioTitle" type="text" dir="auto" maxlength="80" placeholder="Leave blank to auto-name from your document or first words (no dates)">
-
-          <div class="btn-group">
-            <button id="gen" type="button">Generate audio</button>
-            <button id="prev" type="button" class="sec">Preview first 200 characters</button>
-            <button id="cancel" type="button" class="dng" hidden>Cancel</button>
-            <button id="resume" type="button" class="sec" hidden>Resume</button>
-          </div>
-          <p id="status" role="status" aria-live="polite"></p>
-          <p id="statusErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-          <progress id="prog" value="0" max="100" aria-label="Audio generation progress" aria-valuetext="0 percent" hidden></progress>
-        </div>
-
-        <section class="card" id="result" aria-labelledby="resultHeading" hidden>
-          <h2 id="resultHeading">Generated Audio Preview</h2>
-          <audio id="player" controls aria-label="Generated speech audio player"></audio>
-          <div class="player-bar">
-            <div>
-              <label for="speed">Playback speed</label>
-              <select id="speed">
-                <option value="1">1.0x (Normal)</option>
-                <option value="1.25">1.25x</option>
-                <option value="1.5">1.5x</option>
-                <option value="2">2.0x</option>
-              </select>
-            </div>
-          </div>
-          <p id="info" class="hint" role="status" aria-live="polite"></p>
-          <div class="btn-group">
-            <button id="openExportModalBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="exportModal">Export Audio, Subtitles &amp; Video…</button>
-          </div>
-        </section>
-
-        <p class="hint">Audio is generated by AI. Please follow the rules of the platform where you publish it, including any disclosure of synthetic voices. Audio from Gemini carries an inaudible watermark.</p>
-      </div>
-    </section>
-
-    <section id="account" data-title="My Account" data-description="Manage your Voice Studio account balance, daily free allowance, speech server status, and usage history." hidden>
-      <h1 tabindex="-1">My Account</h1>
-      <p class="lead">Check your daily free allowance, available credits, speech server status, and recent activity.</p>
-
-      <div class="card" id="accountCard" tabindex="-1">
-        <div class="account-head">
-          <div>
-            <h2 id="userDisplay">Account</h2>
-            <p class="account-meta" id="userAccountMeta"></p>
-          </div>
-          <div class="btn-group">
-            <button id="refreshQuota" type="button" class="sec">Refresh balance</button>
-            <button id="signOutBtn" type="button" class="dng">Sign out</button>
-          </div>
-        </div>
-
-        <div class="quota-metrics">
-          <div class="quota-metric">
-            <span class="quota-label">Free remaining today</span>
-            <strong id="statDailyRemaining">3,000 chars</strong>
-          </div>
-          <div class="quota-metric">
-            <span class="quota-label">Available credits</span>
-            <strong id="statPaidCredits">0 chars</strong>
-          </div>
-          <div class="quota-metric">
-            <span class="quota-label">Total lifetime generated</span>
-            <strong id="statTotalUsed">0 chars</strong>
-          </div>
-          <div class="quota-metric">
-            <span class="quota-label">Account plan</span>
-            <strong id="statAccountPlan">Free</strong>
-          </div>
-        </div>
-
-        <label for="dailyBar" id="dailyBarLabel">Daily free allowance used: 0 of 3,000 characters</label>
-        <progress id="dailyBar" value="0" max="3000" aria-labelledby="dailyBarLabel"></progress>
-
-        <p id="serverHealthStatus" class="hint" role="status" aria-live="polite">Checking speech server status…</p>
-        <p id="accountMsg" class="hint" role="status" aria-live="polite"></p>
-
-        <details class="panel" id="referralPanel" open>
-          <summary>Invite Friends &amp; Earn Free Bonus Credits</summary>
-          <p class="hint">Share your personal invite link. Each friend who creates and verifies an account earns you <strong>2,000 bonus characters</strong>.</p>
-          <label for="refLinkInput">Your personal invite link</label>
-          <input id="refLinkInput" type="text" readonly aria-describedby="refStatsMsg">
-          <div class="btn-group">
-            <button id="copyRefBtn" type="button" class="sec">Copy invite link</button>
-            <button id="shareRefBtn" type="button" class="sec">Share invite</button>
-          </div>
-          <p id="refStatsMsg" class="hint">Invited friends: 0 · Bonus credits earned: 0 chars</p>
-          <p id="refActionMsg" class="hint" role="status" aria-live="polite"></p>
-        </details>
-
-        <details class="panel" open>
-          <summary>Recent usage &amp; credit history</summary>
-          <ul class="ledger-list" id="ledgerList">
-            <li>No usage recorded yet.</li>
-          </ul>
-        </details>
-      </div>
-
-      <div class="btn-group">
-        <a href="/" data-page="tool" class="btn">Back to Converter</a>
-      </div>
-    </section>
-
-    <section id="admin" data-title="Workspace" data-description="" hidden>
-      <div id="adminMount"></div>
-    </section>
-
-    <section id="pdfStudio" data-title="AI PDF & Book to Audio Studio" data-description="Extract specific chapters, page ranges, or scanned PDFs into clean MP3 audiobooks with browser-local privacy and zero page-number clutter." hidden>
-      <p class="hero-meta-line"><span>Targeted Extraction</span><span aria-hidden="true">·</span><span>Scanned PDF Vision</span><span aria-hidden="true">·</span><span>Local Privacy</span></p>
-      <h1 tabindex="-1">AI PDF &amp; Book Chapter to Audio Studio</h1>
-      <p class="lead">Load any textbook PDF, research paper, EPUB book, or scanned document—ask for a specific chapter, topic, or page range, and Voice Studio builds a clean audio script without wasting quota on unrelated pages.</p>
-
-      <div class="card" id="pdfAgentPanel">
-        <h2>Extract &amp; record selected chapters or pages</h2>
-        <p class="hint" id="pdfStudioFileInfo">No file loaded yet. Choose a PDF, EPUB, DOCX, or TXT file below (processed privately in your browser).</p>
-
-        <div class="btn-group">
-          <button id="pdfAgentPickFileBtn" type="button" class="sec">Choose PDF, EPUB or DOCX file</button>
-          <a href="/" data-page="tool" class="btn sec">Go to Speech Studio</a>
-        </div>
-
-        <label for="pdfAgentPrompt">What would you like to extract &amp; record?</label>
-        <input id="pdfAgentPrompt" type="text" maxlength="500" placeholder="For example: Chapter 3, pages 12-18, or summarize Thermodynamics">
-
-        <div class="row">
-          <div>
-            <label for="pdfAgentOutputStyle">Output script style</label>
-            <select id="pdfAgentOutputStyle">
-              <option value="narrated" selected>Clean narrated audio (spoken prose)</option>
-              <option value="verbatim">Exact text verbatim (headers &amp; citations stripped)</option>
-              <option value="summary">Concise study summary</option>
-              <option value="podcast">2-speaker podcast discussion (Host &amp; Guest)</option>
-            </select>
-          </div>
-        </div>
-
-        <label class="inline-check">
-          <input id="pdfAgentAutoRecord" type="checkbox" checked>
-          <span>Switch to Speech Studio &amp; start recording automatically right after extraction</span>
-        </label>
-
-        <div class="btn-group">
-          <button id="pdfAgentRunBtn" type="button">Extract &amp; record selection</button>
-          <button id="pdfAgentLoadOnlyBtn" type="button" class="sec">Extract to Speech Studio editor</button>
-        </div>
-
-        <p id="pdfAgentStatus" class="hint" role="status" aria-live="polite"></p>
-        <p id="pdfAgentErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      </div>
-
-      <section class="seo-band" aria-labelledby="pdfHowHeading">
-        <h2 id="pdfHowHeading">How Chapter &amp; Page Extraction Works</h2>
-        <ol class="editorial-steps">
-          <li>
-            <strong>Bookmark &amp; Page Preview</strong>
-            <p>Reads PDF bookmarks and page headings on your device first so only the pages you asked for are extracted.</p>
-          </li>
-          <li>
-            <strong>Clean Speech Formatting</strong>
-            <p>Removes repeating page numbers, citation brackets like [12], web links, and split words before recording.</p>
-          </li>
-          <li>
-            <strong>Scanned PDF Reading</strong>
-            <p>Finds image-only PDF pages that have no selectable text and reads just those pages using Gemini Vision.</p>
-          </li>
-          <li>
-            <strong>Offline Chapter Matching</strong>
-            <p>Even offline or without server credits, matches chapter headings, page ranges (such as pages 5–10), and keywords directly in your browser.</p>
-          </li>
-        </ol>
-      </section>
-    </section>
-
-    <section id="podcastStudio" data-title="AI 2-Speaker Podcast & Speech Translator" data-description="Generate natural Host & Guest two-speaker podcast scripts from rough notes or translate scripts into Urdu, English, Arabic, Hindi, Spanish, French, and German for speech." hidden>
-      <p class="hero-meta-line"><span>2-Speaker Dialogue</span><span aria-hidden="true">·</span><span>Multilingual Adaptation</span><span aria-hidden="true">·</span><span>Creator Templates</span></p>
-      <h1 tabindex="-1">AI Podcast Script &amp; Speech Translator Studio</h1>
-      <p class="lead">Start from a structured creator template, turn lecture notes into a two-speaker Host &amp; Guest dialogue, or translate an existing script for natural spoken cadence.</p>
-
-      <div class="card" id="creatorStudioPanel">
-        <h2>Creator Templates, Podcast Writer &amp; Translator</h2>
-
-        <div class="row">
-          <div>
-            <label for="templateSelect">Creator script template</label>
-            <select id="templateSelect">
-              <option value="youtube">YouTube Explainer</option>
-              <option value="lecture">Urdu + English Lecture</option>
-              <option value="podcast">2-Speaker Podcast</option>
-              <option value="story">Audiobook Story</option>
-            </select>
-          </div>
-        </div>
-        <div class="btn-group compact-actions">
-          <button id="applyTemplateBtn" type="button" class="sec">Load selected template</button>
-        </div>
-
-        <hr class="divider">
-
-        <div class="row">
-          <div>
-            <label for="podcastTopic">Topic or notes to turn into a 2-speaker podcast</label>
-            <input id="podcastTopic" type="text" maxlength="2000" placeholder="For example: How solar panels work, or paste key points">
-          </div>
-          <div>
-            <label for="podcastLen">Episode length</label>
-            <select id="podcastLen">
-              <option value="short">Short discussion (~1 min)</option>
-              <option value="medium">Deep dive (~2 to 3 min)</option>
-            </select>
-          </div>
-        </div>
-        <div class="btn-group">
-          <button id="genPodcastBtn" type="button" class="sec">Generate 2-speaker podcast script</button>
-        </div>
-
-        <hr class="divider">
-
-        <div class="row">
-          <div>
-            <label for="translateLang">Translate &amp; adapt Speech Studio text into</label>
-            <select id="translateLang">
-              <option value="Urdu" lang="ur">Urdu (اردو)</option>
-              <option value="English">English</option>
-              <option value="Arabic" lang="ar">Arabic (العربية)</option>
-              <option value="Hindi" lang="hi">Hindi (हिन्दी)</option>
-              <option value="Spanish" lang="es">Spanish (Español)</option>
-              <option value="French" lang="fr">French (Français)</option>
-              <option value="German" lang="de">German (Deutsch)</option>
-            </select>
-          </div>
-        </div>
-        <div class="btn-group">
-          <button id="translateBtn" type="button" class="sec">Translate text for speech</button>
-          <button id="sendStudioToSpeechBtn" type="button">Open script in Speech Studio</button>
-          <button id="recordFromStudioBtn" type="button" class="sec">Generate audio now</button>
-        </div>
-
-        <p id="studioStatus" class="hint" role="status" aria-live="polite"></p>
-        <p id="studioErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-      </div>
-    </section>
-
-    <section id="urduTts" data-title="Urdu & English Bilingual Text-to-Speech Guide" data-description="Produce natural Urdu and mixed Urdu-English audio notes, university handouts, pronunciation fixes, and burned-in RTL video captions in MP3/WAV." hidden class="legal">
-      <p class="hero-meta-line"><span>Bilingual Voice Synthesis</span><span aria-hidden="true">·</span><span>Nastaliq &amp; Latin Script</span></p>
-      <h1 tabindex="-1">Urdu &amp; English Bilingual Text-to-Speech Workflow</h1>
-      <p class="lead">Built for lectures, university handouts, and creator scripts that move between Urdu sentences and English technical terms inside the same paragraph.</p>
-
-      <div class="answer-box">
-        <strong>Recommended Settings for Urdu + English:</strong>
-        <p>Select <strong>Gemini 3.1 Flash TTS Preview</strong> in Step 1 with <strong>MP3 (64 kbps)</strong> for compact ~28 MB/hour files, and pair voices such as <strong>Kore</strong>, <strong>Charon</strong>, or <strong>Puck</strong> for even code-switching across technical vocabulary.</p>
-      </div>
-
-      <h2>Handling Mixed Urdu &amp; English Terms Cleanly</h2>
-      <p>Study handouts frequently mix Urdu explanations with English abbreviations such as CSS, HTML, TCP/IP, or domain jargon. Instead of editing your original document manually, open the <strong>Pronunciation dictionary</strong> in Step 1 and map written terms to phonetic spellings (for example, mapping <code>Ch.</code> to <code>Chapter</code> or specialized acronyms to clear spoken equivalents).</p>
-
-      <h2>Synced .SRT Subtitles &amp; Burned-In Urdu RTL Video</h2>
-      <p>Every generated MP3 or WAV file computes segment durations for <code>.srt</code> and <code>.vtt</code> caption files. Below the audio player, select an aspect ratio and press <strong>Download video with burned-in subtitles</strong>—Urdu segments render right-to-left (RTL) inside 16:9, 9:16 vertical Reels, or 1:1 square video frames.</p>
-
-      <div class="btn-group">
-        <a href="/" data-page="tool" class="btn">Open Speech Studio</a>
-        <a href="/pdf-to-audio" data-page="pdfStudio" class="btn sec">Open AI PDF Studio</a>
-      </div>
-    </section>
-
-    <section id="videoSubtitles" data-title="Video Export with Burned-In .SRT & .VTT Subtitles" data-description="Export 16:9 YouTube, 9:16 Reels, and 1:1 square videos with burned-in Urdu RTL and English LTR captions synced directly to generated speech audio." hidden class="legal">
-      <p class="hero-meta-line"><span>Audio-to-Video Pipeline</span><span aria-hidden="true">·</span><span>Synchronized Captions</span></p>
-      <h1 tabindex="-1">Subtitled Video Export (.SRT, .VTT, MP4 &amp; WebM)</h1>
-      <p class="lead">Turn any generated MP3 or WAV recording into a publish-ready video file inside your browser with timing derived directly from each decoded speech segment.</p>
-
-      <div class="format-table-wrap">
-        <table class="format-table">
-          <thead>
-            <tr>
-              <th scope="col">Export Option</th>
-              <th scope="col">Dimensions / Behavior</th>
-              <th scope="col">Common Publishing Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>16:9 Widescreen Video</strong></td>
-              <td>1280×720 high-contrast canvas with centered multi-line caption box and duration progress bar</td>
-              <td>YouTube lectures, Udemy modules, recorded documentation</td>
-            </tr>
-            <tr>
-              <td><strong>9:16 Vertical Video</strong></td>
-              <td>720×1280 portrait layout sized for up to 5 wrapped lines per caption turn</td>
-              <td>YouTube Shorts, Instagram Reels, TikTok study clips</td>
-            </tr>
-            <tr>
-              <td><strong>1:1 Square Video</strong></td>
-              <td>720×720 balanced feed frame with automatic RTL Urdu &amp; LTR English text direction</td>
-              <td>LinkedIn, Facebook, Telegram, and feed posts</td>
-            </tr>
-            <tr>
-              <td><strong>.SRT &amp; .VTT Subtitle Files</strong></td>
-              <td>Timed directly from the finished audio length of every spoken part and pause</td>
-              <td>External video editors (Premiere, CapCut, DaVinci Resolve)</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>Why Subtitles Stay in Sync</h2>
-      <p>Subtitles are calculated from the exact finished length of each spoken audio segment and your chosen pause—not from an estimated reading speed—so even hour-long books stay in sync from start to finish.</p>
-
-      <div class="btn-group">
-        <a href="/" data-page="tool" class="btn">Open Speech Studio</a>
-        <a href="/formats" data-page="formats" class="btn sec">Compare Audio Formats</a>
-      </div>
-    </section>
-
-    <section id="guides" data-title="Guides & Workflows" data-description="Step-by-step guides for converting academic PDFs, EPUB chapters, Word handouts, bilingual Urdu & English study notes, and 2-speaker podcasts into compact MP3 or WAV audio." hidden class="legal">
-      <h1 tabindex="-1">Guides &amp; Study Workflows</h1>
-      <p class="lead">Simple steps for turning textbooks, handouts, and scripts into clean MP3 audiobooks and subtitled study videos.</p>
-
-      <div class="answer-box">
-        <strong>Quick Summary:</strong>
-        <p>Open any PDF, EPUB, DOCX, Markdown, or TXT file on your device, keep Smart Document Cleanup enabled to skip headers and page numbers, and download chapter MP3s, WAV audio, or synced subtitles.</p>
-      </div>
-
-      <article class="guide-article">
-        <h2>1. Clean Up Academic PDFs Automatically</h2>
-        <h3>Stop page numbers and repeated headers from being read aloud</h3>
-        <p>University handouts often repeat titles, page numbers, and citation brackets on every page. With <strong>Smart document cleanup</strong> checked, Voice Studio removes repeating top/bottom lines, standalone page numbers, and broken line-end hyphens automatically.</p>
-      </article>
-
-      <article class="guide-article">
-        <h2>2. Fix Urdu &amp; English Pronunciations</h2>
-        <h3>Keep technical terms clear without changing your notes</h3>
-        <p>Add abbreviations such as <code>Dr.</code>, <code>Eq.</code>, or technical acronyms to the <strong>Pronunciation dictionary</strong> in Step 1. Voice Studio adjusts how they are spoken in the audio while keeping your written text untouched.</p>
-      </article>
-
-      <article class="guide-article">
-        <h2>3. Split Books into Chapter Audio ZIPs</h2>
-        <h3>Download numbered MP3 tracks and matching captions together</h3>
-        <p>Load a DRM-free EPUB or textbook and click <strong>Split into chapters</strong> to pick individual sections, or use <strong>Export all chapters as Audiobook ZIP</strong> to save numbered MP3 files with synced <code>.srt</code> captions.</p>
-      </article>
-
-      <article class="guide-article">
-        <h2>4. Record Specific Pages or Two-Speaker Podcasts</h2>
-        <h3>Extract exact pages or switch between Host and Guest voices</h3>
-        <p>Use <a href="/pdf-to-audio" data-page="pdfStudio">AI PDF &amp; Book Studio</a> to pull out a specific chapter, page range, or scanned PDF page, or open <a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Translator</a> for <code>Host:</code> / <code>Guest:</code> dialogues.</p>
-      </article>
-
-      <p class="hint">Open the <a href="/" data-page="tool">Speech Studio</a> or view file sizes in <a href="/formats" data-page="formats">Supported Formats</a>.</p>
-    </section>
-
-    <section id="formats" data-title="Supported Formats & File Sizes" data-description="See which PDF, EPUB, Word, and text files work locally in your browser and compare MP3, WAV, subtitle, and video export sizes." hidden>
-      <h1 tabindex="-1">Supported Formats &amp; File Sizes</h1>
-      <p class="lead">Your documents stay in your browser, and finished audio exports as small MP3s for phones, high-quality WAV, synced captions, or subtitled video.</p>
-
-      <div class="answer-box">
-        <strong>Overview:</strong>
-        <p>Open <strong>PDF</strong>, <strong>EPUB</strong>, <strong>DOCX</strong>, <strong>Markdown</strong>, or <strong>TXT</strong> privately on your device, then export <strong>64 kbps MP3</strong> (~28 MB/hour), <strong>128 kbps MP3</strong> (~56 MB/hour), <strong>WAV audio</strong> (~170 MB/hour), <strong>.SRT</strong> / <strong>.VTT</strong> subtitles, or video with burned-in captions.</p>
-      </div>
-
-      <div class="format-table-wrap">
-        <table class="format-table">
-          <thead>
-            <tr>
-              <th scope="col">Format / Export</th>
-              <th scope="col">How It Works</th>
-              <th scope="col">Best For</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>PDF (.pdf)</strong></td>
-              <td>Reads text inside your browser and optionally removes headers, footers, and page numbers</td>
-              <td>University handouts, books, research papers</td>
-            </tr>
-            <tr>
-              <td><strong>EPUB (.epub)</strong></td>
-              <td>Reads chapters directly in your browser with automatic chapter detection</td>
-              <td>Turning ebooks into chaptered Audiobook ZIPs</td>
-            </tr>
-            <tr>
-              <td><strong>Word (.docx)</strong></td>
-              <td>Extracts clean paragraphs without formatting clutter</td>
-              <td>Lecture notes, assignments, scripts</td>
-            </tr>
-            <tr>
-              <td><strong>TXT &amp; Markdown (.txt, .md)</strong></td>
-              <td>Paste from clipboard or drag and drop directly into the text box</td>
-              <td>YouTube scripts, Reels voiceovers, study notes</td>
-            </tr>
-            <tr>
-              <td><strong>MP3 (64 kbps / 128 kbps)</strong></td>
-              <td>Speech-optimized audio (~28 MB/hr at 64 kbps; ~56 MB/hr at 128 kbps)</td>
-              <td>WhatsApp sharing, mobile data, offline study listening</td>
-            </tr>
-            <tr>
-              <td><strong>WAV Audio</strong></td>
-              <td>Uncompressed full-quality audio (~170 MB/hr)</td>
-              <td>Podcast editing and desktop video software</td>
-            </tr>
-            <tr>
-              <td><strong>Subtitles &amp; Video (.SRT, .VTT, MP4/WebM)</strong></td>
-              <td>Synced captions and 16:9, 9:16, or 1:1 videos rendered in your browser</td>
-              <td>YouTube, Shorts, Reels, TikTok, transcripts</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p class="hint">See quick answers in the <a href="/faq" data-page="faq">FAQ</a> or step-by-step guides in <a href="/guides" data-page="guides">Guides</a>.</p>
-    </section>
-
-    <section id="faq" data-title="Frequently Asked Questions" data-description="Answers on PDF header cleanup, small 64 kbps MP3 sizes, Urdu + English bilingual voices, video subtitles, and daily quotas." hidden class="legal">
-      <h1 tabindex="-1">Frequently Asked Questions</h1>
-      <p class="lead">Clear answers on cleaning up PDFs, saving mobile data, Urdu and English voices, subtitles, and daily free limits.</p>
-
-      <div class="faq-list">
-        <details class="faq-item" open>
-          <summary>How does Voice Studio prevent page numbers and headers from interrupting study audio?</summary>
-          <p>When Smart Document Cleanup is enabled, Voice Studio checks your PDF or EPUB on your device, skips repeated header and footer lines, removes standalone page numbers, and rejoins split words before generating audio.</p>
-        </details>
-        <details class="faq-item">
-          <summary>How big is an hour of speech audio, and does it work well over mobile data or WhatsApp?</summary>
-          <p>At the default 64 kbps speech MP3 setting, a 60-minute lecture is only about 28 MB—small enough for WhatsApp study groups and low-storage phones. For video editing software, switch to 128 kbps MP3 or WAV in Step 1.</p>
-        </details>
-        <details class="faq-item">
-          <summary>Does Voice Studio handle mixed Urdu and English study notes accurately?</summary>
-          <p>Yes. Both Urdu and English sentences are read naturally in one pass. For localized names or technical acronyms, add a replacement rule in the Pronunciation Dictionary so your original text stays untouched.</p>
-        </details>
-        <details class="faq-item">
-          <summary>How do the 3,000 daily free characters and Unlimited Mode differ?</summary>
-          <p>Verified accounts receive 3,000 free daily characters with no API key setup required. For entire books or heavy daily use, turn on Own Gemini API Key in Step 1; your key stays strictly inside your browser.</p>
-        </details>
-        <details class="faq-item">
-          <summary>Are my uploaded documents or generated MP3 files kept on any server?</summary>
-          <p>No. Your uploaded files, chapter splits, and downloaded MP3, subtitle, and video exports stay on your device without file storage on our servers.</p>
-        </details>
-        <details class="faq-item">
-          <summary>How do two-speaker dialogues and synchronized .SRT subtitles work?</summary>
-          <p>Set Narration Mode to Dialogue / 2 speakers, choose Speaker A and Speaker B voices, and prefix lines with <code>Host:</code> / <code>Guest:</code> or <code>A:</code> / <code>B:</code>. Every finished recording automatically builds synced <code>.srt</code> and <code>.vtt</code> caption files.</p>
-        </details>
-        <details class="faq-item">
-          <summary>How does burned-in subtitle video export work?</summary>
-          <p>After generating audio, open Export Audio, Subtitles &amp; Video, pick 16:9, 9:16 vertical, or 1:1 square, and press Download video with burned-in subtitles to save a video with clear RTL Urdu or LTR English captions.</p>
-        </details>
-        <details class="faq-item">
-          <summary>What happens if a PDF is a scanned image without selectable text?</summary>
-          <p>Voice Studio checks whether a PDF has selectable text and lets you know if pages are scanned images. Open the <a href="/pdf-to-audio" data-page="pdfStudio">AI PDF &amp; Book Studio</a> to convert only the scanned pages you need.</p>
-        </details>
-      </div>
-      <p class="hint">Have a specific question or bug to report? <a href="/contact" data-page="contact">Send a message through the Contact form</a>.</p>
-    </section>
-
-    <section id="about" data-title="About Voice Studio" data-description="Learn about Voice Studio—a private, accessible PDF, EPUB, and Word to MP3 audiobook and Urdu-English speech tool built by Moutter Rasool in Faisalabad, Pakistan." hidden class="legal">
-      <h1 tabindex="-1">About Voice Studio</h1>
-      <p class="lead">Built by <strong>Moutter Rasool</strong> in Faisalabad, Pakistan as a fast, screen-reader-friendly tool for turning PDFs, books, and bilingual Urdu-English notes into clean audio and subtitled study videos.</p>
-
-      <h2>Why Voice Studio Exists</h2>
-      <p>Long textbooks, multi-chapter EPUB books, and bilingual Urdu-English handouts are difficult to listen to cleanly when standard readers read page numbers, headers, and citations aloud on every single page or produce oversized files that are slow on mobile data.</p>
-      <p>Voice Studio solves that everyday problem for students, visually impaired readers, teachers, and creators: your documents stay private on your device, distracting page clutter is skipped automatically, and finished lectures export as compact MP3 files (~28 MB per hour), synced .SRT/.VTT captions, and study videos.</p>
-
-      <h2>Built for Accessibility &amp; Everyday Study</h2>
-      <ul>
-        <li><strong>Screen-Reader First (WCAG 2.1 AA):</strong> Designed by a blind developer with full keyboard navigation, skip links, readable contrast themes, text scaling, and clear button labels.</li>
-        <li><strong>Urdu (RTL) &amp; English Bilingual Support:</strong> Handles mixed Urdu and English notes smoothly, with a custom Pronunciation Dictionary for acronyms and local names.</li>
-        <li><strong>Flexible Usage:</strong> Use 3,000 free characters every day with a verified account, or plug in your own free Gemini API key for unlimited projects without leaving your browser.</li>
-      </ul>
-
-      <h2>Operator &amp; Support</h2>
-      <p>Operator: <strong>Moutter Rasool</strong>, Faisalabad, Pakistan. Questions, accessibility feedback, bug reports, and account requests are handled directly via the <a href="/contact" data-page="contact">Contact page</a>.</p>
-      <p class="hint">Voice Studio is an independent project and is not affiliated with Google LLC. Gemini is a trademark of Google LLC.</p>
-    </section>
-
-    <section id="contact" data-title="Contact" data-description="Message Voice Studio developer Moutter Rasool directly inside the site for bug reports, feature feedback, account assistance, or privacy requests." hidden class="legal">
-      <h1 tabindex="-1">Contact Voice Studio</h1>
-      <p class="lead">Send bug reports, audio feedback, account quota questions, or deletion requests directly to the developer.</p>
-
-      <div class="card">
-        <h2>Direct developer message</h2>
-        <p class="hint">Messages save securely to the operator inbox without opening an external mail client.</p>
-
-        <form id="contactForm" novalidate>
-          <div class="row">
-            <div>
-              <label for="contactName">Full name</label>
-              <input id="contactName" type="text" required minlength="2" maxlength="120" autocomplete="name" placeholder="Your full name">
-            </div>
-            <div>
-              <label for="contactEmail">Reply email address</label>
-              <input id="contactEmail" type="email" required maxlength="254" autocomplete="email" placeholder="yourname@example.com">
-            </div>
-          </div>
-
-          <label for="contactSubject">Topic</label>
-          <select id="contactSubject" required>
-            <option value="Bug Report / Audio Issue">Bug Report / Audio Issue</option>
-            <option value="Navigation, Keyboard & Layout Issue">Navigation, Keyboard &amp; Layout Issue</option>
-            <option value="Account & Daily Quota Help">Account &amp; Daily Quota Help</option>
-            <option value="Privacy / Account Deletion Request">Privacy / Account Deletion Request</option>
-            <option value="Collaboration & Partnership">Collaboration &amp; Partnership</option>
-            <option value="General Question">General Question</option>
-          </select>
-
-          <label for="contactMessage">Message (minimum 10 characters)</label>
-          <textarea id="contactMessage" required minlength="10" maxlength="2000" placeholder="Describe the document format, browser, or step where an issue occurred…"></textarea>
-
-          <div class="btn-group">
-            <button id="contactSubmit" type="submit">Send message</button>
-          </div>
-          <p id="contactStatus" class="hint" tabindex="-1" role="status" aria-live="polite"></p>
-          <p id="contactErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
-        </form>
-      </div>
-
-      <p class="hint">Operator: <strong>Moutter Rasool</strong> · Voice Studio, Faisalabad, Pakistan. Messages are reviewed within 1–3 working days.</p>
-    </section>
-
-    <section id="privacy" data-title="Privacy Policy" data-description="Voice Studio privacy policy detailing client-side document extraction, Firebase authentication data, transient speech requests, localStorage keys, and deletion rights." hidden class="legal">
-      <h1 tabindex="-1">Privacy Policy</h1>
-      <p class="hint">Effective date: 16 November 2026 · Operator: Moutter Rasool (Faisalabad, Pakistan)</p>
-
-      <h2>1. Document &amp; Media Data (Processed on Your Device)</h2>
-      <p>Uploaded PDF, EPUB, Word (DOCX), Markdown, and TXT files stay in your browser. Voice Studio does not upload source files for storage or keep finished MP3, WAV, ZIP, .SRT, .VTT, or video downloads on any server.</p>
-
-      <h2>2. Browser Preferences (<code>localStorage</code>)</h2>
-      <p>Preferences—including selected voice, bitrate, speaking style, custom Pronunciation Dictionary rules, display accessibility settings, and any personal Gemini API key you enter for Unlimited Mode—are saved strictly in your browser. Clear site data in your browser settings or select <strong>Clear saved key</strong> to erase them immediately.</p>
-
-      <h2>3. Account &amp; Daily Allowance Records</h2>
-      <p>To manage your 3,000-character daily free allowance fairly, encrypted authentication and account records store your user ID, email address, verification status, daily character count, credit balance, and activity timestamps. No advertising trackers or third-party ad networks are used.</p>
-
-      <h2>4. Temporary Speech Requests</h2>
-      <p>When using the shared speech allowance, only the short text passage currently being voiced (or the selected script/pages submitted to the PDF or Podcast tools) is sent over encrypted HTTPS to Google’s Gemini speech service and streamed back immediately without archiving your document.</p>
-
-      <h2>5. Contact Form Messages</h2>
-      <p>Submissions sent through the <a href="/contact" data-page="contact">Contact page</a> record your name, reply email, topic, and message inside access-restricted Cloud Firestore storage solely so the operator can respond. Contact records are never sold or shared with marketers.</p>
-
-      <h2>6. Access, Export &amp; Account Deletion</h2>
-      <p>You may request removal of your account profile, quota ledger, or prior contact messages anytime through the <a href="/contact" data-page="contact">Contact page</a> using the topic <em>Privacy / Account Deletion Request</em>.</p>
-    </section>
-
-    <section id="terms" data-title="Terms and Conditions" data-description="Terms of service governing Voice Studio quotas, bring-your-own-key usage, copyright responsibilities, acceptable content rules, and service limitations." hidden class="legal">
-      <h1 tabindex="-1">Terms and Conditions</h1>
-      <p class="hint">Effective date: 16 November 2026 · Governed by the laws of Pakistan</p>
-
-      <h2>1. Acceptance of Terms</h2>
-      <p>By accessing or using Voice Studio, you agree to these Terms and Conditions. If you do not accept these terms, discontinue use of the service.</p>
-
-      <h2>2. Service Tiers &amp; Availability</h2>
-      <p>Voice Studio supplies client-side document extraction, audio/video encoding tools, and AI speech synthesis backed by Google Gemini models. Verified accounts receive a shared daily character allowance subject to server capacity; users may also supply their own Google AI Studio API key locally inside browser storage.</p>
-
-      <h2>3. Fair Use &amp; Account Integrity</h2>
-      <p>You agree not to register multiple accounts to multiply daily character quotas, automate bulk scraping requests against the shared API routes, reverse-engineer authentication checks, or interfere with service availability for other users.</p>
-
-      <h2>4. Content Ownership &amp; Disclosure</h2>
-      <p>You retain ownership of documents, scripts, and exported audio/video files you create and warrant that you hold the right or license to process the source text. When publishing synthesized audio or video publicly, comply with the hosting platform’s synthetic media disclosure policies.</p>
-
-      <h2>5. Prohibited Conduct</h2>
-      <p>You must not use Voice Studio to produce non-consensual voice impersonations, fraud, harassment, defamation, malware scripts, or content unlawful under applicable law.</p>
-
-      <h2>6. Warranty Disclaimer &amp; Liability Limit</h2>
-      <p>Voice Studio is provided on an &ldquo;as is&rdquo; and &ldquo;as available&rdquo; basis without warranties of uninterrupted uptime or error-free pronunciation. Verify synthesized numbers, citations, and translations independently before academic, legal, medical, or commercial distribution. To the maximum extent permitted by law, Voice Studio and Moutter Rasool are not liable for indirect, incidental, or consequential damages arising from use of the service.</p>
-
-      <h2>7. Contact</h2>
-      <p>Service notices and inquiries are handled through the <a href="/contact" data-page="contact">Contact page</a> (Operator: Moutter Rasool, Faisalabad, Pakistan).</p>
-    </section>
+    <div id="pageOutlet"><!--/pageOutlet--></div>
+    <div id="appPrivateRoot" hidden></div>
   </div>
 </main>
 
@@ -1256,24 +274,24 @@
   <div class="wrap">
     <div class="footer-grid">
       <div>
-        <p class="footer-title">Voice Studio</p>
-        <p>Turn PDF, EPUB, Word, and Urdu or English notes into clean MP3 audiobooks, .SRT/.VTT captions, and subtitled study videos.</p>
+        <p class="footer-title">Voice Studio — Kitaab se Awaaz</p>
+        <p>Turn PDF textbooks, EPUB books, Word notes, and Urdu or English handouts into clean MP3 audiobooks, synced subtitles, and study videos.</p>
       </div>
       <div>
-        <p class="footer-title">Studios &amp; Guides</p>
+        <p class="footer-title">Tools &amp; Guides</p>
         <ul class="footer-links">
           <li><a href="/" data-page="tool">Speech Studio</a></li>
-          <li><a href="/pdf-to-audio" data-page="pdfStudio">AI PDF &amp; Book Studio</a></li>
+          <li><a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book to Audio</a></li>
           <li><a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Translator</a></li>
           <li><a href="/urdu-tts" data-page="urduTts">Urdu &amp; English TTS</a></li>
-          <li><a href="/video-subtitles" data-page="videoSubtitles">Video &amp; Subtitles</a></li>
-          <li><a href="/guides" data-page="guides">Workflows &amp; Recipes</a></li>
-          <li><a href="/formats" data-page="formats">Formats &amp; Specs</a></li>
+          <li><a href="/video-subtitles" data-page="videoSubtitles">Subtitled Videos</a></li>
+          <li><a href="/guides" data-page="guides">Guides &amp; Workflows</a></li>
+          <li><a href="/formats" data-page="formats">Supported Formats</a></li>
           <li><a href="/faq" data-page="faq">FAQ</a></li>
         </ul>
       </div>
       <div>
-        <p class="footer-title">Operator &amp; Legal</p>
+        <p class="footer-title">About &amp; Legal</p>
         <ul class="footer-links">
           <li><a href="/about" data-page="about">About Voice Studio</a></li>
           <li><a href="/contact" data-page="contact">Contact Developer</a></li>

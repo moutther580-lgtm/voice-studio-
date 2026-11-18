@@ -1,13 +1,13 @@
 {
-  "name": "Voice Studio — PDF, EPUB & Urdu Docs to MP3 Audio",
+  "name": "Voice Studio — Kitaab se Awaaz",
   "short_name": "Voice Studio",
-  "description": "Browser-local PDF, EPUB, and Word DOCX extraction with 64 kbps MP3 audiobooks, 24 kHz WAV, .SRT/.VTT captions, and subtitled video.",
+  "description": "Turn PDFs, EPUB books, Word files, and Urdu or English notes into clean MP3 audio, synced subtitles, and study videos.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#fcfcfb",
-  "theme_color": "#1d4ed8",
+  "background_color": "#F6EFE3",
+  "theme_color": "#0F2A44",
   "lang": "en",
   "categories": ["education", "utilities", "accessibility"],
   "icons": [

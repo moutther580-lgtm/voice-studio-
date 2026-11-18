@@ -1,15 +1,23 @@
-const CACHE_NAME = 'voice-studio-shell-v2';
+const CACHE_NAME = 'voice-studio-shell-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'])).catch(() => {})
+    caches
+      .open(CACHE_NAME)
+      .then((cache) =>
+        cache.addAll(['/', '/manifest.webmanifest', '/favicon.ico', '/favicon.svg', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png'])
+      )
+      .catch(() => {})
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -19,11 +27,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
-  // Network-first shell strategy: keeps UI fresh while providing offline fallback for cached shell assets and SPA routes
   event.respondWith(
     fetch(req)
       .then((res) => {
-        if (res.ok && (req.mode === 'navigate' || url.pathname.startsWith('/assets/'))) {
+        if (res.ok && (req.mode === 'navigate' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/images/'))) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, clone)).catch(() => {});
         }

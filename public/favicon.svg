@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Voice Studio Kitaab se Awaaz icon">
+  <rect width="64" height="64" rx="14" fill="#0F2A44"/>
+  <path d="M12 18c7 0 14 2.5 20 6v24c-6-3.5-13-5.5-20-5.5V18Z" fill="#F6EFE3"/>
+  <path d="M52 18c-7 0-14 2.5-20 6v24c6-3.5 13-5.5 20-5.5V18Z" fill="#EFE5D3"/>
+  <line x1="17" y1="26" x2="27" y2="28" stroke="#0F2A44" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="17" y1="32" x2="27" y2="34" stroke="#0F2A44" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="17" y1="38" x2="24" y2="39.5" stroke="#0F2A44" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M38 30v8M43 26v16M48 31v6" stroke="#E8A33D" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

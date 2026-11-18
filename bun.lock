@@ -7,7 +7,10 @@
       "dependencies": {
         "@breezystack/lamejs": "^1.2.7",
         "@firebase/eslint-plugin-security-rules": "^0.0.2",
+        "@fontsource/fraunces": "^5.3.0",
         "@fontsource/ibm-plex-mono": "^5.3.0",
+        "@fontsource/inter": "^5.3.0",
+        "@fontsource/noto-nastaliq-urdu": "^5.3.0",
         "@fontsource/plus-jakarta-sans": "^5.3.0",
         "eslint": "^10.15.0",
         "firebase": "^13.3.0",
@@ -187,7 +190,13 @@
 
     "@firebase/webchannel-wrapper": ["@firebase/webchannel-wrapper@1.0.7", "", {}, "sha512-phBFwieDLvkZGYN9CE9ZFNEIoBVksprzsnCzQejCmCHtgwCXReeuRpoEGN9C4EbhONztv8NRV1tau6Rb9pONwQ=="],
 
+    "@fontsource/fraunces": ["@fontsource/fraunces@5.3.0", "", {}, "sha512-LEHTOBiZufQzAvnAe2rZ8ZknbDS28Q9kzwb0L+gZJEmjLGr8hhZ/5NuHXwDuHBWhVXYoiGGXmrb0H6Ko/RrHTg=="],
+
     "@fontsource/ibm-plex-mono": ["@fontsource/ibm-plex-mono@5.3.0", "", {}, "sha512-eTgnZjZEGk1QtD3ZstF+Vclo2HLAni8YMy34/DxllwZvyz1lR/1RF/xTiAquOBO7MvqBx8D2Ig2WCPMVfdZu7Q=="],
+
+    "@fontsource/inter": ["@fontsource/inter@5.3.0", "", {}, "sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g=="],
+
+    "@fontsource/noto-nastaliq-urdu": ["@fontsource/noto-nastaliq-urdu@5.3.0", "", {}, "sha512-rhozTu22mlnDp5R8A4gGeNJvoLroHEV0TytCwly20w1LMA+VXs/MyhORGJu3i3SWZFdyeCFe5EF5xzraq6zd6A=="],
 
     "@fontsource/plus-jakarta-sans": ["@fontsource/plus-jakarta-sans@5.3.0", "", {}, "sha512-9WRw3G74Ve4cyPApAZSXLPY5DiLOZXDn7Q7dIBjFBpA0Pj56ljDItEdy2UUajjJxRuTg2HkMLO5C3K2nAQORWg=="],
 

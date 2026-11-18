@@ -1,0 +1,27 @@
+# Voice Studio (Kitaab se Awaaz)
+
+> Accessible PDF, EPUB, and Word to MP3 audiobook and Urdu/English text-to-speech web studio built by Moutter Rasool in Faisalabad, Pakistan.
+
+Voice Studio turns textbooks, academic handouts, EPUB books, and bilingual Urdu-English notes into clean MP3 audio (~28 MB per hour for mobile data and WhatsApp), uncompressed WAV, synced .SRT/.VTT captions, and subtitled study videos. All document reading and cleanup happen privately inside the user's browser without server file storage. Built WCAG 2.1 AA screen-reader first.
+
+## Key Capabilities
+- Urdu and English bilingual text-to-speech with RTL Urdu support and custom Pronunciation Dictionary
+- Automatic removal of repeating PDF page numbers, running headers, and broken line hyphens
+- Chapter extraction, Audiobook ZIP packaging, and scanned PDF page reading
+- Two-speaker Host and Guest podcast script builder and multi-language translator
+- Synchronized .SRT/.VTT subtitles and 16:9, 9:16, and 1:1 subtitled video export
+- 3,000 free characters daily for verified accounts plus Bring Your Own Gemini API Key unlimited mode
+
+## Public Pages
+- [Home](https://voice-studio-three.vercel.app/): Overview, interactive drop zone, before/after cleanup demo, and audio samples
+- [PDF to Audio Studio](https://voice-studio-three.vercel.app/pdf-to-audio): Extract chapters, page spans, or scanned pages into MP3
+- [Urdu & English TTS](https://voice-studio-three.vercel.app/urdu-tts): Bilingual Urdu Nastaliq and English voice workflow
+- [Podcast & Translator](https://voice-studio-three.vercel.app/podcast-studio): Two-speaker Host/Guest scripts and multilingual adaptation
+- [Video & Subtitles](https://voice-studio-three.vercel.app/video-subtitles): Export 16:9, 9:16, and 1:1 subtitled videos plus SRT/VTT files
+- [Guides](https://voice-studio-three.vercel.app/guides): Step-by-step study and creator workflows
+- [Supported Formats](https://voice-studio-three.vercel.app/formats): File types, hourly audio sizes, and output specs
+- [FAQ](https://voice-studio-three.vercel.app/faq): Answers on privacy, quotas, Urdu voices, and subtitles
+- [About](https://voice-studio-three.vercel.app/about): Founder story (Moutter Rasool) and accessibility mission
+- [Contact](https://voice-studio-three.vercel.app/contact): Direct operator contact form
+- [Privacy Policy](https://voice-studio-three.vercel.app/privacy): Privacy and data handling policy
+- [Terms and Conditions](https://voice-studio-three.vercel.app/terms): Terms of service

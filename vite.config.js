@@ -1,4 +1,13 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { defineConfig } from 'vite';
+import {
+  ROUTES,
+  ROUTE_BY_PATH,
+  SITE_ORIGIN,
+  normalizePathname,
+  renderRouteHtml,
+} from './shared/routes-data.mjs';
 
 function createNodeWebReq(req, body) {
   const origin = `http://${req.headers.host || 'localhost:3000'}`;
@@ -121,9 +130,113 @@ function localApiDevPlugin() {
   };
 }
 
+function isHtmlPageRequest(req) {
+  if (!req.url) return false;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  const pathname = req.url.split('?')[0];
+  if (
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/src/') ||
+    pathname.startsWith('/shared/') ||
+    pathname.startsWith('/assets/') ||
+    pathname.startsWith('/@') ||
+    pathname.startsWith('/node_modules/')
+  ) {
+    return false;
+  }
+  const base = path.posix.basename(pathname);
+  if (base.includes('.') && !pathname.endsWith('.html')) {
+    return false;
+  }
+  return true;
+}
+
+function multiRoutePrerenderPlugin() {
+  let outDir = 'dist';
+
+  return {
+    name: 'multi-route-prerender',
+    configResolved(config) {
+      outDir = config.build?.outDir || 'dist';
+    },
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!isHtmlPageRequest(req)) return next();
+        const rawPath = (req.url || '/').split('?')[0];
+        const cleanPath = normalizePathname(rawPath);
+        const route = ROUTE_BY_PATH.get(cleanPath);
+        const notFoundRoute = ROUTE_BY_PATH.get('/404');
+        const targetRoute = route || notFoundRoute;
+        if (!targetRoute) return next();
+
+        try {
+          const templatePath = path.resolve(process.cwd(), 'index.html');
+          const rawTemplate = await fs.readFile(templatePath, 'utf-8');
+          const hostHeader = req.headers.host || 'localhost:3000';
+          const origin = hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1') ? SITE_ORIGIN : `https://${hostHeader}`;
+          const hydrated = renderRouteHtml(rawTemplate, targetRoute, origin);
+          const transformed = await server.transformIndexHtml(req.url || '/', hydrated);
+          res.statusCode = route ? 200 : 404;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(transformed);
+        } catch (err) {
+          next(err);
+        }
+      });
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!isHtmlPageRequest(req)) return next();
+        const rawPath = (req.url || '/').split('?')[0];
+        const cleanPath = normalizePathname(rawPath);
+        const route = ROUTE_BY_PATH.get(cleanPath);
+        const targetFile = route
+          ? cleanPath === '/'
+            ? path.resolve(process.cwd(), outDir, 'index.html')
+            : path.resolve(process.cwd(), outDir, cleanPath.slice(1), 'index.html')
+          : path.resolve(process.cwd(), outDir, '404.html');
+
+        try {
+          const html = await fs.readFile(targetFile, 'utf-8');
+          res.statusCode = route ? 200 : 404;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(html);
+        } catch {
+          next();
+        }
+      });
+    },
+    async closeBundle() {
+      const distRoot = path.resolve(process.cwd(), outDir);
+      const templateFile = path.join(distRoot, 'index.html');
+      let builtTemplate = '';
+      try {
+        builtTemplate = await fs.readFile(templateFile, 'utf-8');
+      } catch {
+        return;
+      }
+
+      for (const route of ROUTES) {
+        const html = renderRouteHtml(builtTemplate, route, SITE_ORIGIN);
+        let destFile;
+        if (route.path === '/') {
+          destFile = templateFile;
+        } else if (route.path === '/404') {
+          destFile = path.join(distRoot, '404.html');
+        } else {
+          const subDir = path.join(distRoot, route.path.slice(1));
+          await fs.mkdir(subDir, { recursive: true });
+          destFile = path.join(subDir, 'index.html');
+        }
+        await fs.writeFile(destFile, html, 'utf-8');
+      }
+    },
+  };
+}
+
 export default defineConfig({
   base: '/',
-  plugins: [localApiDevPlugin()],
+  plugins: [localApiDevPlugin(), multiRoutePrerenderPlugin()],
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 700,
