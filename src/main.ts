@@ -1268,15 +1268,19 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-$('#openDrawerBtn').onclick = () => openDrawer();
-$('#closeDrawerBtn').onclick = () => closeDrawer(true);
-$('#drawerBackdrop').onclick = () => closeDrawer(true);
-$('#openA11yBtn').onclick = () => openA11yDrawer();
-$('#closeA11yBtn').onclick = () => closeA11yDrawer(true);
-$('#a11yBackdrop').onclick = () => closeA11yDrawer(true);
-$('#openExportModalBtn').onclick = () => openExportModal();
-$('#closeExportBtn').onclick = () => closeExportModal(true);
-$('#exportBackdrop').onclick = () => closeExportModal(true);
+const bindClickById = (id: string, handler: () => void) => {
+  const el = byId(id);
+  if (el) el.onclick = handler;
+};
+
+bindClickById('openDrawerBtn', () => openDrawer());
+bindClickById('closeDrawerBtn', () => closeDrawer(true));
+bindClickById('drawerBackdrop', () => closeDrawer(true));
+bindClickById('openA11yBtn', () => openA11yDrawer());
+bindClickById('closeA11yBtn', () => closeA11yDrawer(true));
+bindClickById('a11yBackdrop', () => closeA11yDrawer(true));
+bindClickById('closeExportBtn', () => closeExportModal(true));
+bindClickById('exportBackdrop', () => closeExportModal(true));
 
 bindOutletLinks(document);
 
@@ -2010,6 +2014,7 @@ function bindWorkspaceInteractionsOnce() {
 
   byId('openPdfStudioShortcut')?.addEventListener('click', () => navigateToPage('pdfStudio', true));
   byId('openPodcastStudioShortcut')?.addEventListener('click', () => navigateToPage('podcastStudio', true));
+  byId('openExportModalBtn')?.addEventListener('click', () => openExportModal());
 
   const saveCfg = () => store.set('vs.cfg', cfg);
 
