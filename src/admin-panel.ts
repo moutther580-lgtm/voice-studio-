@@ -12,7 +12,7 @@ import { ADMIN_PANEL_HTML } from './private-screens';
 export interface AdminHostHooks {
   getCurrentUser: () => User | null;
   isAdminActive: (user: User | null) => boolean;
-  navigateToPage: (id: 'tool' | 'admin', moveFocus?: boolean) => void;
+  navigateToPage: (id: 'app' | 'tool' | 'admin', moveFocus?: boolean) => void;
   fetchBackendQuota: (user: User) => Promise<void>;
   loadPublicSiteStatus: () => Promise<void>;
   checkHealthText?: () => Promise<void>;
@@ -41,7 +41,7 @@ export function mountAdminPanel(hooks: AdminHostHooks): void {
   mount.innerHTML = ADMIN_PANEL_HTML;
 
   document.getElementById('adminBackToStudioBtn')?.addEventListener('click', () => {
-    hooks.navigateToPage('tool', true);
+    hooks.navigateToPage('app', true);
   });
 
   let cachedWallets: Array<{ docId: string; wallet: UserWalletDoc }> = [];

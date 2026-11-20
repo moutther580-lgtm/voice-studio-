@@ -8,6 +8,7 @@ interface CloudflareEnv extends WorkerEnv {
 
 const KNOWN_PUBLIC_OR_APP_PATHS = new Set([
   '/',
+  '/app',
   '/pdf-to-audio',
   '/urdu-tts',
   '/podcast-studio',

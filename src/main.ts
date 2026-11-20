@@ -1,9 +1,8 @@
-import '@fontsource/fraunces/600.css';
-import '@fontsource/fraunces/700.css';
-import '@fontsource/inter/400.css';
-import '@fontsource/inter/500.css';
-import '@fontsource/inter/600.css';
-import '@fontsource/inter/700.css';
+import '@fontsource/bricolage-grotesque/600.css';
+import '@fontsource/bricolage-grotesque/700.css';
+import '@fontsource/atkinson-hyperlegible/400.css';
+import '@fontsource/atkinson-hyperlegible/700.css';
+import '@fontsource/atkinson-hyperlegible/400-italic.css';
 import '@fontsource/noto-nastaliq-urdu/400.css';
 import '@fontsource/noto-nastaliq-urdu/700.css';
 import '@fontsource/ibm-plex-mono/400.css';
@@ -11,6 +10,7 @@ import '@fontsource/ibm-plex-mono/600.css';
 import type { User } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
 import {
+  BILINGUAL_SYNC_TOKENS,
   ROUTES,
   ROUTE_BY_PAGE_ID,
   ROUTE_BY_PATH,
@@ -21,7 +21,7 @@ import {
 } from '../shared/routes-data.mjs';
 import { ensureAuthListener, getFirebaseMod, hasLikelyFirebaseAuthSession } from './firebase-loader';
 import type { LedgerEntryDoc, UserWalletDoc } from './firebase';
-import { ACCOUNT_CARD_HTML, CONVERTER_WORKSPACE_HTML, VERIFY_BOX_HTML } from './private-screens';
+import { ACCOUNT_CARD_HTML, AUTH_CARD_HTML, CONVERTER_WORKSPACE_HTML, VERIFY_BOX_HTML } from './private-screens';
 import {
   MODELS,
   VOICES,
@@ -391,6 +391,21 @@ const a11yPrefs: A11yPrefs = {
   reduceMotion: Boolean(loadedA11y.reduceMotion),
 };
 
+function isDarkThemeCurrentlyActive(): boolean {
+  if (a11yPrefs.contrast === 'dark' || a11yPrefs.contrast === 'hc-dark') return true;
+  if (a11yPrefs.contrast === 'light' || a11yPrefs.contrast === 'hc-light') return false;
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+}
+
+function syncThemeQuickToggleButton() {
+  const btn = byId<HTMLButtonElement>('themeQuickToggleBtn');
+  if (!btn) return;
+  const darkNow = isDarkThemeCurrentlyActive();
+  btn.setAttribute('aria-pressed', String(darkNow));
+  btn.textContent = darkNow ? 'Light mode' : 'Dark mode';
+  btn.setAttribute('aria-label', darkNow ? 'Switch to light paper theme' : 'Switch to dark theme');
+}
+
 function applyA11ySettings() {
   const root = document.documentElement;
   if (a11yPrefs.contrast === 'system') {
@@ -415,9 +430,50 @@ function applyA11ySettings() {
   root.setAttribute('data-strong-focus', a11yPrefs.strongFocus ? 'on' : 'off');
   root.setAttribute('data-highlight-links', a11yPrefs.highlightLinks ? 'on' : 'off');
   root.setAttribute('data-reduce-motion', a11yPrefs.reduceMotion ? 'on' : 'off');
+  syncThemeQuickToggleButton();
 }
 
 applyA11ySettings();
+
+function bindThemeQuickToggle() {
+  const btn = byId<HTMLButtonElement>('themeQuickToggleBtn');
+  if (!btn) return;
+  btn.onclick = () => {
+    const nextDark = !isDarkThemeCurrentlyActive();
+    a11yPrefs.contrast = nextDark ? 'dark' : 'light';
+    store.set('vs.a11y', a11yPrefs);
+    applyA11ySettings();
+    const contrastEl = byId<HTMLSelectElement>('a11yContrast');
+    if (contrastEl) contrastEl.value = a11yPrefs.contrast;
+    const statusEl = byId('a11yStatus');
+    if (statusEl) statusEl.textContent = nextDark ? 'Theme updated: Evening Study (Dark).' : 'Theme updated: Warm Paper (Light).';
+  };
+}
+
+function bindConsentPreferences() {
+  const banner = byId('consentPrefsBanner');
+  const openBtn = byId<HTMLButtonElement>('openConsentPrefsBtn');
+  const saveBtn = byId<HTMLButtonElement>('consentEssentialBtn');
+  const closeBtn = byId<HTMLButtonElement>('consentCloseBtn');
+  if (!banner) return;
+
+  openBtn?.addEventListener('click', () => {
+    banner.hidden = false;
+    banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    (saveBtn || closeBtn)?.focus();
+  });
+
+  saveBtn?.addEventListener('click', () => {
+    store.set('vs.consentChoice', 'essential');
+    banner.hidden = true;
+    openBtn?.focus();
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    banner.hidden = true;
+    openBtn?.focus();
+  });
+}
 
 function openA11yDrawer() {
   closeDrawer(false);
@@ -572,8 +628,37 @@ function closeExportModal(restoreFocus = true) {
   }
 }
 
-/* ---- Interactive Public Controls (Samples, Hero Drop Zone, Before/After, Auth Card, Contact, Studios) ---- */
+/* ---- Interactive Public Controls (Listen-to-section, Bilingual Sync, Try-It Box, Samples, Before/After) ---- */
 let activeSampleId: string | null = null;
+let activeListenBtn: HTMLButtonElement | null = null;
+let syncTimerId: number | null = null;
+let syncPlaying = false;
+let tryItAudioUrl: string | null = null;
+
+function clearBilingualSyncHighlight() {
+  if (syncTimerId !== null) {
+    window.clearInterval(syncTimerId);
+    syncTimerId = null;
+  }
+  syncPlaying = false;
+  document.querySelectorAll<HTMLElement>('#bilingualSyncLine .sync-tok-active').forEach((el) => {
+    el.classList.remove('sync-tok-active');
+  });
+  const syncBtn = byId<HTMLButtonElement>('syncDemoPlayBtn');
+  if (syncBtn) {
+    syncBtn.setAttribute('aria-pressed', 'false');
+    syncBtn.textContent = 'Play & follow highlight';
+  }
+}
+
+function resetListenButtons() {
+  document.querySelectorAll<HTMLButtonElement>('.listen-section-btn').forEach((btn) => {
+    btn.setAttribute('aria-pressed', 'false');
+    const original = btn.dataset.origLabel;
+    if (original) btn.textContent = original;
+  });
+  activeListenBtn = null;
+}
 
 function stopInteractiveSample(announce = false) {
   try {
@@ -584,12 +669,16 @@ function stopInteractiveSample(announce = false) {
     // Ignore
   }
   activeSampleId = null;
+  clearBilingualSyncHighlight();
+  resetListenButtons();
   document.querySelectorAll<HTMLButtonElement>('.sample-play-btn').forEach((btn) => {
     btn.setAttribute('aria-pressed', 'false');
     btn.textContent = 'Play sample';
   });
+  const tryStopBtn = byId('tryItStopBtn');
+  if (tryStopBtn) tryStopBtn.hidden = true;
   const statusEl = byId('samplePlaybackStatus');
-  if (announce && statusEl) statusEl.textContent = 'Sample playback stopped.';
+  if (announce && statusEl) statusEl.textContent = 'Audio playback stopped.';
 }
 
 function speakInteractiveText(text: string, langHint: string, statusTargetId: string, onEnd?: () => void) {
@@ -605,16 +694,16 @@ function speakInteractiveText(text: string, langHint: string, statusTargetId: st
       const matchedVoice = voices.find((v) => v.lang.toLowerCase().startsWith(langBase));
       if (matchedVoice) utter.voice = matchedVoice;
       utter.onend = () => {
-        if (statusEl) statusEl.textContent = 'Finished sample preview.';
+        if (statusEl) statusEl.textContent = 'Finished reading.';
         onEnd?.();
       };
       utter.onerror = () => {
-        if (statusEl) statusEl.textContent = 'Sign in with a verified account for full studio neural voice audio.';
+        if (statusEl) statusEl.textContent = 'Open Speech Studio (/app) for neural Gemini voices and MP3 download.';
         onEnd?.();
       };
       window.speechSynthesis.speak(utter);
       if (statusEl) {
-        statusEl.textContent = 'Playing quick browser preview — sign in for full Studio voices and MP3 download.';
+        statusEl.textContent = 'Playing browser voice preview — open /app for neural Studio voices and MP3 download.';
       }
       return;
     } catch {
@@ -623,9 +712,129 @@ function speakInteractiveText(text: string, langHint: string, statusTargetId: st
   }
   if (statusEl) {
     statusEl.textContent =
-      'Instant voice preview is unavailable in this browser. Sign in with a verified account to generate and download MP3 audio.';
+      'Instant browser preview is unavailable here. Open Speech Studio (/app) to generate and download neural MP3 audio.';
   }
   onEnd?.();
+}
+
+function bindListenSectionButtons(container: ParentNode) {
+  container.querySelectorAll<HTMLButtonElement>('.listen-section-btn').forEach((btn) => {
+    if (!btn.dataset.origLabel) {
+      btn.dataset.origLabel = btn.textContent?.trim() || 'Listen to this section';
+    }
+    btn.onclick = () => {
+      if (activeListenBtn === btn) {
+        stopInteractiveSample(false);
+        return;
+      }
+      stopInteractiveSample(false);
+      const sel = btn.dataset.listenTarget || '';
+      const targetEl = sel ? document.querySelector<HTMLElement>(sel) : btn.closest('section, article');
+      if (!targetEl) return;
+
+      const blocks = Array.from(targetEl.querySelectorAll<HTMLElement>('h1, h2, h3, p, li'))
+        .filter((el) => !el.closest('.ad-slot, .nav-drawer, form, .try-it-box') && !el.hidden)
+        .map((el) => el.textContent?.replace(/\s+/g, ' ').trim() || '')
+        .filter((t) => t.length > 0);
+      const spoken = blocks.join('. ').slice(0, 1800);
+      if (!spoken) return;
+
+      activeListenBtn = btn;
+      btn.setAttribute('aria-pressed', 'true');
+      btn.textContent = 'Stop listening';
+
+      speakInteractiveText(spoken, 'en-US', 'samplePlaybackStatus', () => {
+        if (activeListenBtn === btn) {
+          resetListenButtons();
+        }
+      });
+    };
+  });
+}
+
+function bindBilingualSyncDemo() {
+  const playBtn = byId<HTMLButtonElement>('syncDemoPlayBtn');
+  const lineEl = byId('bilingualSyncLine');
+  const statusEl = byId('syncDemoStatus');
+  if (!playBtn || !lineEl) return;
+
+  const setActiveToken = (idx: number) => {
+    lineEl.querySelectorAll<HTMLElement>('.sync-tok').forEach((span) => {
+      const tokIdx = Number(span.dataset.tokIdx);
+      span.classList.toggle('sync-tok-active', tokIdx === idx);
+    });
+  };
+
+  playBtn.onclick = () => {
+    if (syncPlaying) {
+      stopInteractiveSample(false);
+      if (statusEl) statusEl.textContent = 'Mixed Urdu & English demo stopped.';
+      return;
+    }
+
+    stopInteractiveSample(false);
+    syncPlaying = true;
+    playBtn.setAttribute('aria-pressed', 'true');
+    playBtn.textContent = 'Stop highlight';
+
+    const speechWords = BILINGUAL_SYNC_TOKENS.map((t) => t.speech);
+    const fullSpeech = speechWords.join(' ');
+    const charOffsets: Array<{ idx: number; start: number; end: number }> = [];
+    let cursor = 0;
+    speechWords.forEach((word, idx) => {
+      charOffsets.push({ idx, start: cursor, end: cursor + word.length });
+      cursor += word.length + 1;
+    });
+
+    let currentIdx = 0;
+    setActiveToken(0);
+
+    // Timed stepper ensures highlight advances visibly even on browsers where speechSynthesis.onboundary is omitted
+    syncTimerId = window.setInterval(() => {
+      if (!syncPlaying) return;
+      currentIdx++;
+      if (currentIdx >= BILINGUAL_SYNC_TOKENS.length) {
+        clearBilingualSyncHighlight();
+        if (statusEl) statusEl.textContent = 'Finished mixed Urdu and English highlight demo.';
+        return;
+      }
+      setActiveToken(currentIdx);
+    }, 420);
+
+    if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+      try {
+        const utter = new SpeechSynthesisUtterance(fullSpeech);
+        utter.lang = 'ur-PK';
+        utter.rate = 0.92;
+        const voices = window.speechSynthesis.getVoices();
+        const urVoice = voices.find((v) => v.lang.toLowerCase().startsWith('ur'));
+        if (urVoice) utter.voice = urVoice;
+
+        utter.onboundary = (ev) => {
+          if (!syncPlaying) return;
+          const match = charOffsets.find((o) => ev.charIndex >= o.start && ev.charIndex <= o.end + 1);
+          if (match) {
+            currentIdx = match.idx;
+            setActiveToken(match.idx);
+          }
+        };
+        utter.onend = () => {
+          clearBilingualSyncHighlight();
+          if (statusEl) statusEl.textContent = 'Finished mixed Urdu and English highlight demo.';
+        };
+        utter.onerror = () => {
+          // Keep visual highlight running cleanly through the sentence
+          if (statusEl) statusEl.textContent = 'Showing word-by-word Urdu + English highlight sequence.';
+        };
+        window.speechSynthesis.speak(utter);
+        if (statusEl) statusEl.textContent = 'Reading Urdu & English together — follow the orange highlight.';
+        return;
+      } catch {
+        // Fallback to timed visual highlight only
+      }
+    }
+    if (statusEl) statusEl.textContent = 'Showing word-by-word Urdu & English highlight sequence.';
+  };
 }
 
 function bindAuthCardControls() {
@@ -708,64 +917,177 @@ function bindAuthCardControls() {
 }
 
 function bindHomeInteractiveControls() {
-  byId('startConvertingFreeBtn')?.addEventListener('click', () => {
-    const authCard = byId('authCard');
-    authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    byId('googleSignIn')?.focus();
-  });
+  const tryTextEl = byId<HTMLTextAreaElement>('tryItText');
+  const tryVoiceEl = byId<HTMLSelectElement>('tryItVoice');
+  const tryCountEl = byId('tryItCharCount');
+  const tryPlayBtn = byId<HTMLButtonElement>('tryItPlayBtn');
+  const tryStopBtn = byId<HTMLButtonElement>('tryItStopBtn');
+  const tryStatusEl = byId('tryItStatus');
+  const tryPlayer = byId<HTMLAudioElement>('tryItAudioPlayer');
+  const tryByokToggle = byId<HTMLInputElement>('tryItByokToggle');
+  const tryByokKey = byId<HTMLInputElement>('tryItByokKey');
+  const tryDropZone = byId('tryItDropZone');
+  const tryDropLabel = byId('tryItDropLabel');
+  const tryPickBtn = byId('tryItPickFileBtn');
+  const tryFileInput = byId<HTMLInputElement>('tryItFileInput');
 
-  byId('finalCtaSignInBtn')?.addEventListener('click', () => {
-    const authCard = byId('authCard');
-    authCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    byId('googleSignIn')?.focus();
-  });
+  const updateTryItCount = () => {
+    if (!tryTextEl || !tryCountEl) return;
+    const len = [...tryTextEl.value].length;
+    tryCountEl.textContent = len > 300 ? `${len} chars (first 300 previewed)` : `${len} / 300 chars`;
+  };
 
-  byId('hearSampleBtn')?.addEventListener('click', () => {
-    const samplesSec = byId('samplesSection');
-    samplesSec?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const firstBtn = document.querySelector<HTMLButtonElement>('.sample-play-btn');
-    firstBtn?.focus();
-  });
+  if (tryTextEl) {
+    updateTryItCount();
+    tryTextEl.addEventListener('input', () => {
+      updateTryItCount();
+      pendingEditorText = tryTextEl.value;
+    });
+  }
 
-  const dropZone = byId('landingDropZone');
-  const pickBtn = byId('landingPickFileBtn');
-  const fileInput = byId<HTMLInputElement>('landingFileInput');
-  const playExcerptBtn = byId('landingPlayExcerptBtn');
+  if (tryByokToggle && tryByokKey) {
+    tryByokToggle.checked = byokEnabled;
+    tryByokKey.value = byokKey;
+    tryByokToggle.addEventListener('change', () => {
+      byokEnabled = tryByokToggle.checked;
+      store.set('vs.byokEnabled', byokEnabled);
+      syncByokUi();
+    });
+    tryByokKey.addEventListener('input', () => {
+      byokKey = tryByokKey.value.trim();
+      store.set('vs.byokKey', byokKey);
+      if (byokKey && !tryByokToggle.checked) {
+        tryByokToggle.checked = true;
+        byokEnabled = true;
+        store.set('vs.byokEnabled', true);
+      }
+      syncByokUi();
+    });
+  }
 
-  if (pickBtn && fileInput) {
-    pickBtn.onclick = () => fileInput.click();
-    fileInput.onchange = async () => {
-      const f = fileInput.files?.[0];
-      if (!f) return;
-      await handleSelectedFile(f);
-      fileInput.value = '';
+  const loadTryItFile = async (f: File) => {
+    const lower = f.name.toLowerCase();
+    const maxBytes = lower.endsWith('.pdf') ? 30 * 1024 * 1024 : 15 * 1024 * 1024;
+    if (f.size > maxBytes) {
+      if (tryStatusEl) tryStatusEl.textContent = `File is too large for browser preview (${Math.round(f.size / 1048576)} MB).`;
+      return;
+    }
+    if (tryDropLabel) tryDropLabel.textContent = `Reading ${f.name} locally…`;
+    try {
+      let extracted = '';
+      if (lower.endsWith('.txt') || lower.endsWith('.md') || f.type.startsWith('text/')) {
+        extracted = await f.text();
+      } else {
+        const { extractDocument } = await import('./doc-extract');
+        const res = await extractDocument(f, true);
+        extracted = res.text;
+        fullLoadedDocText = res.text;
+        detectedChapters = res.chaptersList || [];
+        loadedDocTitle = cleanDocBasename(f.name);
+        loadedPagesText = res.pagesText || [];
+        loadedOutlineItems = res.outlineItems || [];
+      }
+      const cleanExcerpt = extracted.replace(/\s+/g, ' ').trim();
+      if (!cleanExcerpt) {
+        if (tryDropLabel) tryDropLabel.textContent = `No selectable text found in ${f.name}. Open PDF & Book Studio for scanned pages.`;
+        return;
+      }
+      const snippet = safePreviewSlice(cleanExcerpt, 600);
+      if (tryTextEl) {
+        tryTextEl.value = snippet;
+        updateTryItCount();
+      }
+      pendingEditorText = extracted;
+      pendingAudioTitle = loadedDocTitle || '';
+      loadedFile = f;
+      if (tryDropLabel) tryDropLabel.textContent = `Loaded ${f.name} on your device — press Play preview above.`;
+      if (tryStatusEl) tryStatusEl.textContent = `Excerpt loaded (${[...cleanExcerpt].length.toLocaleString()} total chars). Open /app to convert the full file.`;
+    } catch {
+      if (tryDropLabel) tryDropLabel.textContent = `Could not read ${f.name}. Try a valid PDF, EPUB, DOCX, or TXT file.`;
+    }
+  };
+
+  if (tryPickBtn && tryFileInput) {
+    tryPickBtn.onclick = () => tryFileInput.click();
+    tryFileInput.onchange = async () => {
+      const f = tryFileInput.files?.[0];
+      if (f) await loadTryItFile(f);
+      tryFileInput.value = '';
     };
   }
 
-  if (dropZone) {
-    dropZone.addEventListener('dragover', (e) => {
+  if (tryDropZone) {
+    tryDropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      dropZone.classList.add('drag-active');
+      tryDropZone.classList.add('drag-active');
     });
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-active');
+    tryDropZone.addEventListener('dragleave', () => {
+      tryDropZone.classList.remove('drag-active');
     });
-    dropZone.addEventListener('drop', async (e) => {
+    tryDropZone.addEventListener('drop', async (e) => {
       e.preventDefault();
-      dropZone.classList.remove('drag-active');
+      tryDropZone.classList.remove('drag-active');
       const f = e.dataTransfer?.files?.[0];
-      if (f && !running && !extracting) {
-        await handleSelectedFile(f);
-      }
+      if (f) await loadTryItFile(f);
     });
   }
 
-  if (playExcerptBtn) {
-    playExcerptBtn.onclick = () => {
-      const previewText = byId('landingSampleTextPreview')?.textContent?.trim() || getEditorTextValue().slice(0, 220);
-      if (previewText) {
-        speakInteractiveText(previewText.slice(0, 240), 'en-US', 'landingDropStatus');
+  if (tryStopBtn) {
+    tryStopBtn.onclick = () => {
+      stopInteractiveSample(false);
+      if (tryPlayer) {
+        tryPlayer.pause();
       }
+      if (tryStatusEl) tryStatusEl.textContent = 'Preview stopped.';
+      tryStopBtn.hidden = true;
+    };
+  }
+
+  if (tryPlayBtn && tryTextEl) {
+    tryPlayBtn.onclick = async () => {
+      const raw = tryTextEl.value.trim();
+      if (!raw) {
+        if (tryStatusEl) tryStatusEl.textContent = 'Type or paste a sentence first.';
+        tryTextEl.focus();
+        return;
+      }
+      const previewSlice = safePreviewSlice(raw, 300);
+      const selectedVoice = tryVoiceEl?.value || 'Kore';
+      const customKey = tryByokToggle?.checked ? tryByokKey?.value.trim() || '' : '';
+
+      stopInteractiveSample(false);
+
+      if (customKey) {
+        tryPlayBtn.disabled = true;
+        if (tryStatusEl) tryStatusEl.textContent = `Generating neural Studio preview with voice ${selectedVoice}…`;
+        try {
+          const r = await callByokTts(cfg.model, selectedVoice, '', previewSlice, customKey);
+          if (r.kind !== 'ok') {
+            if (tryStatusEl) tryStatusEl.textContent = r.msg;
+            return;
+          }
+          const pcm = toPcm(r.d);
+          const blob = wavBlob([pcm.pcm], pcm.rate, 0);
+          if (tryItAudioUrl) URL.revokeObjectURL(tryItAudioUrl);
+          tryItAudioUrl = URL.createObjectURL(blob);
+          if (tryPlayer) {
+            tryPlayer.hidden = false;
+            tryPlayer.src = tryItAudioUrl;
+            await tryPlayer.play().catch(() => {});
+          }
+          if (tryStopBtn) tryStopBtn.hidden = false;
+          if (tryStatusEl) tryStatusEl.textContent = `Playing neural Studio preview (${selectedVoice}). Open /app to export MP3s and chapters.`;
+        } finally {
+          tryPlayBtn.disabled = false;
+        }
+        return;
+      }
+
+      const hasUrdu = /[\u0600-\u06FF]/.test(previewSlice);
+      if (tryStopBtn) tryStopBtn.hidden = false;
+      speakInteractiveText(previewSlice, hasUrdu ? 'ur-PK' : 'en-US', 'tryItStatus', () => {
+        if (tryStopBtn) tryStopBtn.hidden = true;
+      });
     };
   }
 
@@ -797,7 +1119,7 @@ function bindHomeInteractiveControls() {
 
     if (baListen) {
       baListen.onclick = () => {
-        speakInteractiveText(baDisplay.textContent || cleanText, 'en-US', 'beforeAfterStateTitle');
+        speakInteractiveText(baDisplay.textContent || cleanText, 'en-US', 'samplePlaybackStatus');
       };
     }
   }
@@ -1048,7 +1370,7 @@ function bindPdfAndPodcastOutletControls() {
         setStudioErr('Load a template, generate a podcast script, or enter text first.');
         return;
       }
-      navigateToPage('tool', false);
+      navigateToPage('app', false);
       byId('text')?.focus();
     };
   }
@@ -1061,7 +1383,7 @@ function bindPdfAndPodcastOutletControls() {
         return;
       }
       if (!requireSignedInUser()) return;
-      navigateToPage('tool', false);
+      navigateToPage('app', false);
       byId('gen')?.click();
     };
   }
@@ -1084,6 +1406,8 @@ function bindCurrentOutletControls() {
   const outlet = byId('pageOutlet');
   if (!outlet) return;
   bindOutletLinks(outlet);
+  bindListenSectionButtons(outlet);
+  bindBilingualSyncDemo();
   bindAuthCardControls();
   bindHomeInteractiveControls();
   bindSamplePlayerButtons();
@@ -1106,16 +1430,33 @@ function syncPrivateWorkspaceVisibility(activePageId: PageId) {
 
   if (!outlet || !privateRoot) return;
 
-  if (activePageId === 'tool' && currentUser) {
-    outlet.hidden = true;
-    privateRoot.hidden = false;
-    if (verifyBox) verifyBox.hidden = currentUser.emailVerified;
-    if (converterWs) converterWs.hidden = !currentUser.emailVerified;
+  if (activePageId === 'app') {
+    if (currentUser) {
+      outlet.hidden = true;
+      privateRoot.hidden = false;
+      if (verifyBox) verifyBox.hidden = currentUser.emailVerified;
+      if (converterWs) converterWs.hidden = !currentUser.emailVerified;
+    } else {
+      outlet.hidden = false;
+      privateRoot.hidden = true;
+      if (verifyBox) verifyBox.hidden = true;
+      if (converterWs) converterWs.hidden = true;
+      const authSlot = byId('appAuthCardSlot');
+      if (authSlot && !byId('authCard')) {
+        authSlot.innerHTML = AUTH_CARD_HTML;
+        bindAuthCardControls();
+      }
+    }
   } else {
     outlet.hidden = false;
     privateRoot.hidden = true;
     if (verifyBox) verifyBox.hidden = true;
     if (converterWs) converterWs.hidden = true;
+
+    const homeSignedBanner = byId('homeSignedInBanner');
+    if (homeSignedBanner) {
+      homeSignedBanner.hidden = !currentUser;
+    }
   }
 
   if (activePageId === 'account' && currentUser && currentUser.emailVerified) {
@@ -1127,15 +1468,19 @@ function route(moveFocus: boolean) {
   let targetRoute = resolveRoute();
   let id = targetRoute.pageId;
 
+  if (id === 'app') {
+    void ensureAuthListener(handleAuthUser);
+  }
+
   if (authResolved) {
     if (id === 'admin' && !isAdminActive(currentUser)) {
-      targetRoute = ROUTE_BY_PAGE_ID.get('tool') || targetRoute;
+      targetRoute = ROUTE_BY_PAGE_ID.get('app') || targetRoute;
       id = targetRoute.pageId;
-      history.replaceState(null, '', '/');
+      history.replaceState(null, '', '/app');
     } else if (id === 'account' && (!currentUser || !currentUser.emailVerified)) {
-      targetRoute = ROUTE_BY_PAGE_ID.get('tool') || targetRoute;
+      targetRoute = ROUTE_BY_PAGE_ID.get('app') || targetRoute;
       id = targetRoute.pageId;
-      history.replaceState(null, '', '/');
+      history.replaceState(null, '', '/app');
     }
   } else if (id === 'account' || id === 'admin') {
     void ensureAuthListener(handleAuthUser);
@@ -1154,7 +1499,7 @@ function route(moveFocus: boolean) {
 
   syncPrivateWorkspaceVisibility(id);
 
-  document.querySelectorAll<HTMLAnchorElement>('.drawer-nav a[data-page]').forEach((a) => {
+  document.querySelectorAll<HTMLAnchorElement>('.drawer-nav a[data-page], .header-links a[data-page]').forEach((a) => {
     if (a.dataset.page === id) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
@@ -1200,7 +1545,7 @@ function route(moveFocus: boolean) {
 
   if (moveFocus) {
     window.scrollTo(0, 0);
-    const activeContainer = id === 'tool' && currentUser ? byId('appPrivateRoot') || outlet || $('#main') : outlet || $('#main');
+    const activeContainer = id === 'app' && currentUser ? byId('appPrivateRoot') || outlet || $('#main') : outlet || $('#main');
     focusActivePageHeading(activeContainer);
   }
 }
@@ -1208,11 +1553,11 @@ function route(moveFocus: boolean) {
 function navigateToPage(id: PageId, moveFocus = true) {
   if (id === 'admin' && !isAdminActive(currentUser)) {
     closeDrawer(false);
-    id = 'tool';
+    id = 'app';
   }
   if (id === 'account' && (!currentUser || !currentUser.emailVerified)) {
     closeDrawer(false);
-    id = 'tool';
+    id = 'app';
   }
   const targetRoute = ROUTE_BY_PAGE_ID.get(id) || ROUTE_BY_PAGE_ID.get('tool');
   const targetPath = targetRoute?.path || '/';
@@ -1500,8 +1845,8 @@ function triggerHeaderOrDrawerAuth() {
     void handleSignOut();
     return;
   }
-  if (resolveRoute().pageId !== 'tool') {
-    navigateToPage('tool', false);
+  if (resolveRoute().pageId !== 'app') {
+    navigateToPage('app', false);
   }
   byId('authCard')?.scrollIntoView({ block: 'nearest' });
   byId('googleSignIn')?.focus();
@@ -1681,10 +2026,10 @@ async function handleAuthUser(user: User | null) {
     headerUser.textContent = '';
     headerAdminBtn.hidden = true;
     headerAdminBtn.textContent = '';
-    headerAuthBtn.textContent = 'Sign in';
+    headerAuthBtn.textContent = 'Open Studio';
     drawerUser.hidden = true;
     drawerUser.textContent = '';
-    drawerAuthBtn.textContent = 'Sign in to Converter';
+    drawerAuthBtn.textContent = 'Open Speech Studio';
     navAccountLink.hidden = true;
     navAccountLink.textContent = '';
     navAdminLink.hidden = true;
@@ -3031,8 +3376,8 @@ async function run() {
 function requireSignedInUser(): boolean {
   if (!currentUser) {
     const msg = 'Please sign in with Google or Email first.';
-    if (resolveRoute().pageId !== 'tool') {
-      navigateToPage('tool', false);
+    if (resolveRoute().pageId !== 'app') {
+      navigateToPage('app', false);
     }
     say(msg);
     sayAuth(msg);
@@ -3042,8 +3387,8 @@ function requireSignedInUser(): boolean {
   }
   if (!currentUser.emailVerified) {
     const msg = 'Please verify your email address to activate your 3,000 characters/day allowance.';
-    if (resolveRoute().pageId !== 'tool') {
-      navigateToPage('tool', false);
+    if (resolveRoute().pageId !== 'app') {
+      navigateToPage('app', false);
     }
     say(msg);
     sayAuth(msg);
@@ -3810,11 +4155,11 @@ async function runPdfRecordingAgent(forceLoadOnly = false) {
 
     if (shouldRecord) {
       if (!requireSignedInUser()) return;
-      navigateToPage('tool', false);
+      navigateToPage('app', false);
       say(`Extracted "${cleanTitle}". Starting audio recording…`);
       byId('gen')?.click();
     } else if (currentUser && currentUser.emailVerified) {
-      navigateToPage('tool', false);
+      navigateToPage('app', false);
       say(`Extracted "${cleanTitle}" into the Speech Studio editor.`);
       byId('text')?.focus();
     }
@@ -3866,6 +4211,8 @@ function bindReferralUi() {
 }
 
 /* ---- Init ---- */
+bindThemeQuickToggle();
+bindConsentPreferences();
 bindA11ySettings();
 bindPwaAndShare();
 bindCurrentOutletControls();

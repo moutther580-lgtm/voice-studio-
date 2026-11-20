@@ -18,8 +18,15 @@ export interface SampleClip {
   translationNote: string;
 }
 
+export interface BilingualSyncToken {
+  text: string;
+  speech: string;
+  lang: 'ur' | 'en';
+}
+
 export const SITE_ORIGIN: string;
 export const SAMPLE_CLIPS: Record<'urdu' | 'english' | 'mixed', SampleClip>;
+export const BILINGUAL_SYNC_TOKENS: BilingualSyncToken[];
 export const ROUTES: RouteDef[];
 export const ROUTE_BY_PATH: Map<string, RouteDef>;
 export const ROUTE_BY_PAGE_ID: Map<string, RouteDef>;
