@@ -122,6 +122,8 @@ let verifiedAdminUid = '';
 let adminDataLoaded = false;
 let signedInScreensMounted = false;
 let workspaceEventsBound = false;
+let liveTeacherUnmountFn: (() => void) | null = null;
+let liveTeacherMountedKey = '';
 
 function isAdminActive(user: User | null): boolean {
   return Boolean(user && user.emailVerified && verifiedAdminUid && user.uid === verifiedAdminUid && verifiedAdminSession);
@@ -1459,6 +1461,21 @@ function syncPrivateWorkspaceVisibility(activePageId: PageId) {
     }
   }
 
+  if (activePageId === 'liveTeacher') {
+    const authSlot = byId('liveInlineAuthSlot');
+    const authActionRow = byId('liveAuthActionRow');
+    if (!currentUser) {
+      if (authActionRow) authActionRow.hidden = true;
+      if (authSlot && !byId('authCard')) {
+        authSlot.innerHTML = AUTH_CARD_HTML;
+        bindAuthCardControls();
+      }
+    } else {
+      if (authSlot) authSlot.innerHTML = '';
+      if (authActionRow) authActionRow.hidden = currentUser.emailVerified;
+    }
+  }
+
   if (activePageId === 'account' && currentUser && currentUser.emailVerified) {
     mountAccountCardIntoOutlet();
   }
@@ -1468,7 +1485,7 @@ function route(moveFocus: boolean) {
   let targetRoute = resolveRoute();
   let id = targetRoute.pageId;
 
-  if (id === 'app') {
+  if (id === 'app' || id === 'liveTeacher') {
     void ensureAuthListener(handleAuthUser);
   }
 
@@ -1486,13 +1503,20 @@ function route(moveFocus: boolean) {
     void ensureAuthListener(handleAuthUser);
   }
 
+  if (id !== 'liveTeacher' && liveTeacherUnmountFn) {
+    liveTeacherUnmountFn();
+    liveTeacherMountedKey = '';
+  }
+
   const outlet = byId('pageOutlet');
+  let outletReplaced = false;
   if (outlet) {
     const renderedId = outlet.getAttribute('data-rendered-page');
     if (renderedId !== id) {
       stopInteractiveSample(false);
       outlet.innerHTML = targetRoute.html;
       outlet.setAttribute('data-rendered-page', id);
+      outletReplaced = true;
       bindCurrentOutletControls();
     }
   }
@@ -1518,6 +1542,35 @@ function route(moveFocus: boolean) {
   const ldScript = document.getElementById('ldJsonScript');
   if (ldScript) {
     ldScript.textContent = buildJsonLdForRoute(targetRoute, window.location.origin);
+  }
+
+  if (id === 'liveTeacher') {
+    const nextLiveKey = currentUser?.emailVerified
+      ? `verified:${currentUser.uid}`
+      : currentUser
+        ? `unverified:${currentUser.uid}`
+        : 'anon';
+    if (outletReplaced || liveTeacherMountedKey !== nextLiveKey) {
+      liveTeacherMountedKey = nextLiveKey;
+      void (async () => {
+        const { mountLiveTeacher, unmountLiveTeacher } = await import('./live-teacher');
+        liveTeacherUnmountFn = unmountLiveTeacher;
+        if (resolveRoute().pageId !== 'liveTeacher') return;
+        await mountLiveTeacher({
+          getCurrentUser: () => currentUser,
+          isByokActive,
+          getByokKey: () => byokKey.trim(),
+          getLoadedTextExcerpt: () => getEditorTextValue().trim() || fullLoadedDocText.trim(),
+          sendLessonNotesToSpeechStudio: (title, notesText) => {
+            if (title) setAudioTitleValue(title);
+            setText(notesText, 'user');
+            navigateToPage('app', true);
+            byId('text')?.focus();
+          },
+          navigateToPage: (target, focus) => navigateToPage(target, focus),
+        });
+      })();
+    }
   }
 
   if (id === 'admin' && isAdminActive(currentUser)) {
@@ -2021,6 +2074,10 @@ async function handleAuthUser(user: User | null) {
   };
 
   if (!user) {
+    if (liveTeacherUnmountFn) {
+      liveTeacherUnmountFn();
+      liveTeacherMountedKey = '';
+    }
     unmountSignedInScreens();
     headerUser.hidden = true;
     headerUser.textContent = '';

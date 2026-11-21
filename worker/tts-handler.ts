@@ -1,7 +1,9 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import {
+  addFirestoreLiveUsedSeconds,
   creditReferralBonus,
   getFirestoreGlobalUsed,
+  getFirestoreLiveUsedSeconds,
   getFirestoreServerConfig,
   getFirestoreWallet,
   recordFirestoreLedgerEntry,
@@ -12,6 +14,9 @@ import {
   type ServiceAccountCreds,
   type WalletSnapshot,
 } from './firestore-admin.js';
+
+export const DAILY_LIVE_FREE_SECONDS = 600;
+const GLOBAL_DAILY_LIVE_SECONDS = 120_000;
 
 const FIREBASE_PROJECT_ID = 'voice-studio-b6bb1';
 const FIRESTORE_DATABASE_ID = 'ai-studio-voicestudio-54f73766-0cc2-4833-94d7-e7ac9b2c2e3f';
@@ -36,6 +41,7 @@ export interface WorkerEnv {
   GOOGLE_API_KEY?: string;
   GEMINI_KEY?: string;
   DAILY_FREE_CHAR_LIMIT?: string;
+  DAILY_LIVE_FREE_SECONDS?: string;
   GLOBAL_DAILY_FREE_CHARS?: string;
   FIREBASE_SERVICE_ACCOUNT_JSON?: string;
   VERCEL_API_TOKEN?: string;
@@ -236,20 +242,20 @@ function buildGeminiBody(model: string, voice: string, style: string, text: stri
   return { contents: [{ role: 'user', parts }], generationConfig };
 }
 
-interface VerifiedUser {
+export interface VerifiedUser {
   uid: string;
   email: string;
 }
 
-async function verifyFirebaseUser(request: Request): Promise<VerifiedUser | Response> {
-  const authHeader = request.headers.get('Authorization') || '';
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) {
-    return json({ error: 'Please sign in first to generate audio.' }, 401);
+export async function verifyFirebaseTokenString(
+  rawToken: string
+): Promise<{ ok: true; user: VerifiedUser } | { ok: false; status: number; error: string }> {
+  const token = String(rawToken || '').trim();
+  if (!token) {
+    return { ok: false, status: 401, error: 'Please sign in first to start Live Teacher.' };
   }
-
   try {
-    const { payload } = await jwtVerify(match[1], FIREBASE_JWKS, {
+    const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
       issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
       audience: FIREBASE_PROJECT_ID,
     });
@@ -259,15 +265,28 @@ async function verifyFirebaseUser(request: Request): Promise<VerifiedUser | Resp
     const emailVerified = payload.email_verified === true;
 
     if (!uid || !SAFE_UID_RE.test(uid) || !email) {
-      return json({ error: 'Invalid account token.' }, 401);
+      return { ok: false, status: 401, error: 'Invalid account token.' };
     }
     if (!emailVerified) {
-      return json({ error: 'Please verify your email address before generating audio.' }, 403);
+      return { ok: false, status: 403, error: 'Please verify your email address before starting Live Teacher.' };
     }
-    return { uid, email };
+    return { ok: true, user: { uid, email } };
   } catch {
-    return json({ error: 'Your sign-in session expired. Please sign in again.' }, 401);
+    return { ok: false, status: 401, error: 'Your sign-in session expired. Please sign in again.' };
   }
+}
+
+async function verifyFirebaseUser(request: Request): Promise<VerifiedUser | Response> {
+  const authHeader = request.headers.get('Authorization') || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return json({ error: 'Please sign in first to generate audio.' }, 401);
+  }
+  const verified = await verifyFirebaseTokenString(match[1]);
+  if (!verified.ok) {
+    return json({ error: verified.error }, verified.status);
+  }
+  return verified.user;
 }
 
 function parseServiceAccount(raw?: string): ServiceAccountCreds | null {
@@ -306,7 +325,7 @@ async function verifyPrimaryAdminUser(request: Request): Promise<VerifiedUser | 
   return userOrErr;
 }
 
-function cleanApiKeyCandidate(raw?: string): string {
+export function cleanApiKeyCandidate(raw?: string): string {
   const k = String(raw || '').trim().replace(/^['"]+|['"]+$/g, '').trim();
   if (!k || k === 'MY_GEMINI_API_KEY' || k.startsWith('YOUR_') || k.length < 20) {
     return '';
@@ -932,10 +951,26 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
       service: 'voice-studio-worker',
       backendConfigured: Boolean(apiKey),
       dailyLimit: eff.runtime.dailyFreeCharLimit,
+      dailyLiveFreeSeconds: parseIntEnv(env.DAILY_LIVE_FREE_SECONDS, DAILY_LIVE_FREE_SECONDS),
       maintenanceMode: eff.runtime.maintenanceMode,
       siteNotice: eff.runtime.siteNotice,
       allowPdfStudio: eff.runtime.allowPdfStudio,
       allowPodcastStudio: eff.runtime.allowPodcastStudio,
+    });
+  }
+
+  if (url.pathname === '/api/live-quota' && request.method === 'GET') {
+    const userOrErr = await verifyFirebaseUser(request);
+    if (userOrErr instanceof Response) return userOrErr;
+    const allowed = await checkRateLimit(kv, `liveq:${userOrErr.uid}`, 40, 60);
+    if (!allowed) {
+      return json({ error: 'Too many quota checks. Please wait a moment.' }, 429);
+    }
+    const snap = await getLiveQuotaSnapshot(userOrErr.uid, env);
+    return json({
+      ...snap,
+      backendConfigured: Boolean(apiKey),
+      maintenanceMode: eff.runtime.maintenanceMode,
     });
   }
 
@@ -1919,3 +1954,107 @@ async function routeApiRequest(request: Request, env: WorkerEnv): Promise<Respon
 
   return json({ error: 'Not found' }, 404);
 }
+
+export interface LiveQuotaSnapshot {
+  uid: string;
+  date: string;
+  usedSeconds: number;
+  limitSeconds: number;
+  remainingSeconds: number;
+  globalUsedSeconds: number;
+  globalCapSeconds: number;
+}
+
+export interface LiveWorkerEnv extends WorkerEnv {
+  DAILY_LIVE_FREE_SECONDS?: string;
+}
+
+export async function resolveLiveBackendState(env: LiveWorkerEnv) {
+  const eff = await loadEffectiveRuntime(env);
+  return {
+    effectiveApiKey: eff.effectiveApiKey,
+    maintenanceMode: eff.runtime.maintenanceMode,
+    limitSeconds: parseIntEnv(env.DAILY_LIVE_FREE_SECONDS, DAILY_LIVE_FREE_SECONDS),
+  };
+}
+
+export async function getLiveQuotaSnapshot(uid: string, env: LiveWorkerEnv): Promise<LiveQuotaSnapshot> {
+  const kv = env.USAGE_KV || fallbackKV;
+  const today = utcDateKey();
+  const limitSeconds = parseIntEnv(env.DAILY_LIVE_FREE_SECONDS, DAILY_LIVE_FREE_SECONDS);
+  let usedSeconds = parseIntEnv((await kv.get(`live:u:${uid}:${today}`)) || '0', 0);
+  const globalUsedSeconds = parseIntEnv((await kv.get(`live:g:${today}`)) || '0', 0);
+  const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  if (creds) {
+    try {
+      const fsUsed = await getFirestoreLiveUsedSeconds(
+        creds,
+        FIREBASE_PROJECT_ID,
+        FIRESTORE_DATABASE_ID,
+        uid,
+        today
+      );
+      usedSeconds = Math.max(usedSeconds, fsUsed);
+    } catch (err) {
+      console.warn('[voice-studio] Live quota Firestore check fell back to KV:', err);
+    }
+  }
+  const remainingSeconds = Math.max(0, limitSeconds - usedSeconds);
+  return {
+    uid,
+    date: today,
+    usedSeconds,
+    limitSeconds,
+    remainingSeconds,
+    globalUsedSeconds,
+    globalCapSeconds: GLOBAL_DAILY_LIVE_SECONDS,
+  };
+}
+
+export async function incrementLiveUsedSeconds(
+  uid: string,
+  env: LiveWorkerEnv,
+  deltaSeconds: number
+): Promise<LiveQuotaSnapshot> {
+  const kv = env.USAGE_KV || fallbackKV;
+  const today = utcDateKey();
+  const cleanDelta = Math.max(1, Math.min(120, Math.floor(deltaSeconds)));
+  const limitSeconds = parseIntEnv(env.DAILY_LIVE_FREE_SECONDS, DAILY_LIVE_FREE_SECONDS);
+
+  const curUser = parseIntEnv((await kv.get(`live:u:${uid}:${today}`)) || '0', 0);
+  const nextUserKv = curUser + cleanDelta;
+  await kv.put(`live:u:${uid}:${today}`, String(nextUserKv), { expirationTtl: 172_800 });
+
+  const curGlobal = parseIntEnv((await kv.get(`live:g:${today}`)) || '0', 0);
+  const nextGlobal = curGlobal + cleanDelta;
+  await kv.put(`live:g:${today}`, String(nextGlobal), { expirationTtl: 172_800 });
+
+  let usedSeconds = nextUserKv;
+  const creds = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  if (creds) {
+    try {
+      const fsUsed = await addFirestoreLiveUsedSeconds(
+        creds,
+        FIREBASE_PROJECT_ID,
+        FIRESTORE_DATABASE_ID,
+        uid,
+        today,
+        cleanDelta
+      );
+      usedSeconds = Math.max(usedSeconds, fsUsed);
+    } catch (err) {
+      console.warn('[voice-studio] Live quota Firestore write fell back to KV:', err);
+    }
+  }
+
+  return {
+    uid,
+    date: today,
+    usedSeconds,
+    limitSeconds,
+    remainingSeconds: Math.max(0, limitSeconds - usedSeconds),
+    globalUsedSeconds: nextGlobal,
+    globalCapSeconds: GLOBAL_DAILY_LIVE_SECONDS,
+  };
+}
+

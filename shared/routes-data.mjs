@@ -398,10 +398,11 @@ const HOME_HTML = `<section id="tool" data-page-section="tool">
   </section>
 
   <section class="seo-band cta-band" aria-labelledby="finalCtaHeading">
-    <h2 id="finalCtaHeading">Ready for full chapters and MP3 downloads?</h2>
-    <p class="lead">Open your ad-free Speech Studio for 3,000 free characters daily—or connect your own Gemini API key.</p>
+    <h2 id="finalCtaHeading">Ready for full chapters, MP3 downloads, or live voice tutoring?</h2>
+    <p class="lead">Open your ad-free Speech Studio for 3,000 free characters daily—or talk with the Urdu &amp; English Live AI Teacher (10 minutes free daily, unlimited with your own Gemini API key).</p>
     <div class="btn-group">
       <a class="btn" href="/app" data-page="app">Open Speech Studio (/app)</a>
+      <a class="btn sec" href="/live-teacher" data-page="liveTeacher">Open Live AI Teacher</a>
       <a class="btn sec" href="/guides/blind-low-vision-students-audio-textbooks" data-page="guideBlindStudents">Guide for blind &amp; low-vision learners</a>
     </div>
   </section>
@@ -410,7 +411,7 @@ const HOME_HTML = `<section id="tool" data-page-section="tool">
 const APP_WORKSPACE_SHELL_HTML = `<section id="app" data-page-section="app" class="app-shell">
   <div id="appAuthMount">
     <h1 tabindex="-1">Speech Studio</h1>
-    <p class="lead">Sign in to activate your 3,000-character daily free allowance, download MP3 and WAV audio, split chapters into Audiobook ZIPs, and render subtitled study videos. This workspace is always ad-free.</p>
+    <p class="lead">Sign in to activate your 3,000-character daily free allowance, download MP3 and WAV audio, split chapters into Audiobook ZIPs, and access the <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher</a> (10 minutes free daily). This workspace is always ad-free.</p>
     <div id="appAuthCardSlot"></div>
   </div>
 </section>`;
@@ -660,6 +661,207 @@ const VIDEO_SUBTITLES_HTML = `<section id="videoSubtitles" data-page-section="vi
   <div class="btn-group">
     <a href="/app" data-page="app" class="btn">Generate audio and video in Speech Studio</a>
     <a href="/formats" data-page="formats" class="btn sec">Compare audio formats</a>
+  </div>
+</section>`;
+
+const LIVE_TEACHER_HTML = `<section id="liveTeacher" data-page-section="liveTeacher" class="legal">
+  ${renderBreadcrumbs('Live AI Teacher', '/live-teacher')}
+  <div class="section-head-row">
+    <h1 tabindex="-1">Live AI Teacher in Urdu and English (Primary to PhD)</h1>
+    <button type="button" class="sec listen-section-btn" data-listen-target="#liveTeacher" aria-pressed="false">Listen to this section</button>
+  </div>
+  <p class="lead">Real-time bilingual voice tutoring designed for Pakistani blind, low-vision, and sighted learners—from Class 1 stories to PhD viva defense. Explains equations, diagrams, and code purely by ear with NVDA and TalkBack collision-safe mic controls.</p>
+
+  <div id="liveAuthPromptCard" class="card">
+    <h2 id="liveAuthTitle">Sign in to start your Live Class</h2>
+    <p id="liveAuthLead" class="hint">Verified accounts get <strong>10 minutes free every day</strong>, and users with their own Gemini API key saved in <a href="/app" data-page="app">Speech Studio (/app)</a> get unlimited free live sessions.</p>
+    <div id="liveAuthActionRow" class="btn-group">
+      <a href="/app" data-page="app" class="btn">Sign in via Speech Studio (/app)</a>
+      <a href="/guides/blind-low-vision-students-audio-textbooks" data-page="guideBlindStudents" class="btn sec">Screen-reader study guide</a>
+    </div>
+    <div id="liveInlineAuthSlot"></div>
+  </div>
+
+  <div id="liveTeacherWorkspace" class="live-teacher-shell" hidden>
+    <div class="card compact-bar" id="liveQuotaCard">
+      <div class="live-quota-row">
+        <div>
+          <strong id="liveQuotaHeading">Daily Free Tutoring Allowance</strong>
+          <p id="liveQuotaText" class="account-meta" role="status" aria-live="polite">Checking daily live tutoring balance…</p>
+        </div>
+        <span id="liveTimerClock" class="mono-num live-clock" aria-live="off">10:00</span>
+      </div>
+      <div class="live-meter-track" aria-hidden="true">
+        <div id="liveQuotaMeterFill" class="live-meter-fill" style="width:100%"></div>
+      </div>
+    </div>
+
+    <div class="card" id="liveSetupCard">
+      <h2>1. Class profile, language &amp; screen-reader audio safety</h2>
+      <div class="row">
+        <div>
+          <label for="liveGrade">Education level</label>
+          <select id="liveGrade">
+            <option value="primary">Primary (Classes 1–5)</option>
+            <option value="middle">Middle School (Classes 6–8)</option>
+            <option value="matric" selected>Matric / O-Level (Classes 9–10)</option>
+            <option value="fsc_alevel">FSc / ICS / FA / A-Level &amp; MDCAT / ECAT</option>
+            <option value="bs_honours">University BS / MBBS / Engineering / Law</option>
+            <option value="ms_mphil">MS / MPhil Graduate Research</option>
+            <option value="phd_research">PhD / Doctoral Research &amp; Viva</option>
+          </select>
+        </div>
+        <div>
+          <label for="liveSubject">Subject</label>
+          <select id="liveSubject">
+            <option value="All Subjects">All Subjects / General Study</option>
+            <option value="Mathematics and Statistics">Mathematics &amp; Statistics</option>
+            <option value="Physics">Physics</option>
+            <option value="Chemistry">Chemistry</option>
+            <option value="Biology and Medical Sciences">Biology / Medical (MDCAT / MBBS)</option>
+            <option value="Computer Science and Programming">Computer Science &amp; Coding</option>
+            <option value="Urdu and Literature">Urdu &amp; Literature</option>
+            <option value="English and Essay Writing">English &amp; Essay Writing</option>
+            <option value="Islamiat and Pakistan Studies">Islamiat &amp; Pakistan Studies</option>
+            <option value="Economics, Accounting and Commerce">Economics / Accounting / Commerce</option>
+            <option value="Research Methodology and Thesis Defense">Research Methodology &amp; Thesis</option>
+          </select>
+        </div>
+        <div>
+          <label for="liveLanguage">Language mix</label>
+          <select id="liveLanguage">
+            <option value="urdu_english_mix" selected>Pakistani Classroom (Urdu + English mix)</option>
+            <option value="urdu_pure">Pure Urdu (خالص اردو)</option>
+            <option value="english_clear">Clear Academic English</option>
+            <option value="roman_urdu">Roman Urdu Friendly</option>
+            <option value="regional_friendly">Urdu + English (Punjabi / Pashto / Sindhi / Balochi / Saraiki friendly)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="liveMode">Teaching mode</label>
+          <select id="liveMode">
+            <option value="tutor" selected>Step-by-Step Tutor (Samjhaye)</option>
+            <option value="viva">Oral Viva &amp; Exam Quiz Coach</option>
+            <option value="loaded_book">Loaded Textbook / PDF Helper</option>
+            <option value="phd_defense">PhD Defense &amp; Literature Critique</option>
+          </select>
+        </div>
+        <div>
+          <label for="liveVoice">Teacher voice</label>
+          <select id="liveVoice">
+            <option value="Kore" selected>Kore — Clear Urdu &amp; English</option>
+            <option value="Charon">Charon — Calm Professor</option>
+            <option value="Puck">Puck — Warm Encouraging Tutor</option>
+            <option value="Zephyr">Zephyr — Bright &amp; Steady</option>
+            <option value="Fenrir">Fenrir — Deep Formal Scholar</option>
+          </select>
+        </div>
+        <div>
+          <label for="liveMicMode">Microphone control (Screen-reader safety)</label>
+          <select id="liveMicMode">
+            <option value="tap" selected>Tap Mic On / Off (Ctrl+M — safest for NVDA &amp; TalkBack)</option>
+            <option value="ptt">Push-to-Talk (Press &amp; Hold Button or Space)</option>
+            <option value="continuous">Hands-Free Continuous (Headphones recommended)</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="inline-check">
+        <input id="liveDeepThinking" type="checkbox">
+        <span>Use Deep STEM &amp; Research reasoning (auto-enabled for BS, MS &amp; PhD)</span>
+      </label>
+
+      <label class="inline-check">
+        <input id="liveQuietScreenReader" type="checkbox" checked>
+        <span>Pause live transcript alerts while teacher speaks (stops NVDA / TalkBack double-talking)</span>
+      </label>
+
+      <label class="inline-check">
+        <input id="liveUseLoadedBook" type="checkbox">
+        <span id="liveLoadedBookLabel">Include loaded Speech Studio book/chapter text as lesson context</span>
+      </label>
+
+      <div class="btn-group">
+        <button id="liveStartBtn" type="button">Start Live Class</button>
+        <button id="liveEndBtn" type="button" class="dng" hidden>End Class</button>
+      </div>
+      <p id="liveConnStatus" class="hint" role="status" aria-live="polite">Choose your level and subject above, then press Start Live Class.</p>
+      <p id="liveErr" class="hint err-msg" role="alert" aria-live="assertive"></p>
+    </div>
+
+    <div class="card" id="liveStageCard">
+      <h2>2. Live voice, interrupt &amp; optional book page camera</h2>
+      <div class="live-stage-controls">
+        <button id="liveMicBtn" type="button" class="live-ptt-btn" disabled aria-pressed="false" aria-keyshortcuts="Control+m">Start Speaking (Mic Off)</button>
+        <button id="liveInterruptBtn" type="button" class="sec" disabled aria-keyshortcuts="Escape">Stop / Interrupt Teacher (Esc)</button>
+      </div>
+      <p class="hint" id="liveStageHint">Tip for blind learners: In Tap or Push-to-Talk mode, wait a second after NVDA or TalkBack finishes reading before opening the mic, or wear earphones.</p>
+
+      <hr class="divider">
+
+      <label for="liveTextPrompt">Or type / paste a question, math problem, or code snippet (Braille &amp; quiet room friendly)</label>
+      <textarea id="liveTextPrompt" dir="auto" rows="3" maxlength="4000" placeholder="Example: Sir, FSc Physics ka Gauss's Law asaan Urdu mein step by step samjha dein, ya ye Python error check karein..."></textarea>
+      <div class="btn-group">
+        <button id="liveSendTextBtn" type="button" class="sec" disabled>Send typed question to teacher</button>
+        <button id="liveRequestNotesBtn" type="button" class="sec" disabled>Ask teacher to prepare MP3 revision notes</button>
+      </div>
+
+      <hr class="divider">
+
+      <div class="live-camera-box">
+        <div class="btn-group">
+          <button id="liveCamToggleBtn" type="button" class="sec" disabled aria-pressed="false">Turn Camera On (Scan Printed Book Page)</button>
+          <button id="liveCamCaptureBtn" type="button" class="sec" hidden disabled>Read &amp; Explain This Page Now</button>
+        </div>
+        <label class="inline-check" id="liveAutoCamWrap" hidden>
+          <input id="liveAutoCam" type="checkbox">
+          <span>Auto-share 1 frame per second while camera is on (uses extra data)</span>
+        </label>
+        <video id="liveCameraPreview" class="live-camera-video" autoplay playsinline muted hidden aria-label="Camera preview for scanning a printed textbook page"></video>
+        <canvas id="liveCameraCanvas" width="960" height="720" hidden></canvas>
+      </div>
+    </div>
+
+    <div class="card" id="liveTranscriptCard">
+      <div class="sample-head">
+        <h2>3. Spoken transcript &amp; revision notes</h2>
+        <button id="liveClearLogBtn" type="button" class="sec">Clear transcript</button>
+      </div>
+      <div id="liveTranscriptLog" class="live-transcript-log" role="log" aria-live="off" aria-label="Live AI Teacher conversation transcript">
+        <p class="hint">Your live Urdu and English conversation transcript will appear here once class starts.</p>
+      </div>
+
+      <div id="liveNotesBox" class="note-box" hidden>
+        <h3 id="liveNotesTitle">Lesson Revision Notes</h3>
+        <pre id="liveNotesBody" class="live-notes-pre"></pre>
+        <div class="btn-group">
+          <button id="liveSendToStudioBtn" type="button">Send Notes to Speech Studio (/app) for MP3</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Built for real Pakistani classrooms &amp; blind scholars</h2>
+  <div class="audience-two-col">
+    <div class="audience-item">
+      <h3>Zero visual-only teaching</h3>
+      <p>The teacher never tells you to "look at the chart below." Fractions, chemistry bonds, circuits, and research tables are explained step by step by ear using spatial mental models.</p>
+    </div>
+    <div class="audience-item">
+      <h3>Primary to PhD coverage</h3>
+      <p>Aligned with Pakistani PTB, FBISE, O/A Levels, MDCAT/ECAT, engineering, MBBS, and HEC graduate thesis defense preparation across Urdu, English, and Roman Urdu.</p>
+    </div>
+    <div class="audience-item">
+      <h3>10 minutes free daily + BYOK unlimited</h3>
+      <p>Signed-in accounts receive 10 minutes of free live voice tutoring every day. Save your own Gemini API key inside <a href="/app" data-page="app">Speech Studio</a> for unlimited sessions.</p>
+    </div>
+    <div class="audience-item">
+      <h3>Turn lessons into offline MP3s</h3>
+      <p>Ask your teacher to summarize any lesson into plain revision notes, send them to <a href="/app" data-page="app">Speech Studio</a> in one click, and download a compact ~28 MB/hr MP3 for offline review.</p>
+    </div>
   </div>
 </section>`;
 
@@ -1015,12 +1217,16 @@ const FAQ_HTML = `<section id="faq" data-page-section="faq" class="legal">
       <p>Yes. Urdu sentences and English technical terms are read smoothly in one pass. You can also save custom pronunciations for local names and acronyms inside the Pronunciation Dictionary without changing your original notes.</p>
     </details>
     <details class="faq-item">
-      <summary>How do the 3,000 daily free characters and Unlimited Mode work?</summary>
-      <p>Every verified account gets 3,000 free characters every day with zero setup. If you want to convert long chapters or full books at once, open Step 1 in <a href="/app" data-page="app">Speech Studio</a> and paste your own Gemini API key (saved strictly inside your browser).</p>
+      <summary>How do the 3,000 daily free characters, 10-minute Live AI Teacher, and Unlimited Mode work?</summary>
+      <p>Every verified account gets 3,000 free Speech Studio characters plus 10 minutes of Live AI Teacher voice tutoring every day with zero setup. If you want unlimited audio exports or unlimited live tutoring, enable your own Google AI Studio Gemini API key inside Step 1 of <a href="/app" data-page="app">Speech Studio</a> (stored strictly in your browser).</p>
     </details>
     <details class="faq-item">
-      <summary>Are my PDFs or MP3 files stored on your server?</summary>
-      <p>No. Documents are opened inside browser memory and finished MP3, WAV, ZIP, subtitle, and video downloads stay on your device. Text sent for speech synthesis is transmitted to Google's Gemini API under Google's terms (see <a href="/privacy" data-page="privacy">Privacy Policy</a>).</p>
+      <summary>Are my PDFs, MP3 files, or live voice chats stored on your server?</summary>
+      <p>No. Documents stay inside browser memory and finished MP3/WAV exports stay on your device. Live microphone audio, optional page-camera snapshots, and text requests are streamed in real time to Google's Gemini API and are not permanently archived on Voice Studio servers (see <a href="/privacy" data-page="privacy">Privacy Policy</a>).</p>
+    </details>
+    <details class="faq-item">
+      <summary>How does the Live AI Teacher avoid colliding with NVDA or TalkBack?</summary>
+      <p>On <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher</a>, you can use Tap Mic On/Off (<code>Ctrl+M</code>) or Push-to-Talk (<code>Space</code>) so screen-reader speech never leaks into the mic, press <code>Escape</code> to stop the teacher immediately, and keep live transcript announcements paused while the teacher speaks.</p>
     </details>
     <details class="faq-item">
       <summary>How do two-speaker podcasts and .SRT subtitles work?</summary>
@@ -1028,7 +1234,7 @@ const FAQ_HTML = `<section id="faq" data-page-section="faq" class="legal">
     </details>
     <details class="faq-item">
       <summary>What happens when a PDF is a scanned image?</summary>
-      <p>Voice Studio warns you that no selectable text was found and lets you open <a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book Studio</a> to convert just the scanned pages you need.</p>
+      <p>Voice Studio warns you that no selectable text was found and lets you open <a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book Studio</a> to convert just the scanned pages you need, or show the printed page to the <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher</a> camera scanner.</p>
     </details>
   </div>
 
@@ -1123,17 +1329,17 @@ const PRIVACY_HTML = `<section id="privacy" data-page-section="privacy" class="l
   <h2>1. Documents and Exported Audio Stay on Your Device</h2>
   <p>Uploaded PDF, EPUB, Word (DOCX), Markdown, and TXT files are opened and cleaned locally inside your browser. Voice Studio does not upload your full books to file servers and does not store finished MP3, WAV, ZIP, subtitle, or video exports.</p>
 
-  <h2>2. Speech Requests Sent to Google's Gemini API</h2>
-  <p>When you generate neural speech audio, podcast scripts, or scanned-page extractions, the text excerpt or page image needed for that request is sent over HTTPS to Google's Gemini API and processed under Google's Gemini API Terms of Service and Privacy Policy (either via Voice Studio's backend or directly from your browser when you supply your own API key). Do not submit highly confidential personal secrets you do not wish processed by Google's API.</p>
+  <h2>2. Speech, Live Microphone &amp; Optional Page-Camera Requests Sent to Google's Gemini API</h2>
+  <p>When you generate neural speech audio, podcast scripts, scanned-page extractions, or start a live session on <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher</a>, only the text excerpt, optional book-page camera image, or real-time microphone audio needed for that session is transmitted over encrypted HTTPS/WSS to Google's Gemini API under Google's Gemini API Terms of Service and Privacy Policy. Voice Studio does not archive raw microphone recordings or camera frames on its own servers. Do not submit highly confidential personal secrets you do not wish processed by Google's API.</p>
 
   <h2>3. Browser Preferences and Personal Keys (localStorage)</h2>
   <p>Display preferences—such as color theme, contrast mode, font scale, selected voice, Pronunciation Dictionary rules, and any personal Gemini API key you enter—are saved strictly in your browser's <code>localStorage</code>. Clearing browser site data or clicking <strong>Clear saved key</strong> deletes them immediately.</p>
 
   <h2>4. Account and Daily Allowance Records</h2>
-  <p>When you create an account to use the 3,000-character daily allowance inside <a href="/app" data-page="app">Speech Studio (/app)</a>, Firebase Authentication and Firestore store only your user ID, email address, verification state, daily character count, credit balance, referral status, and activity timestamps.</p>
+  <p>When you create an account to use the 3,000-character daily allowance inside <a href="/app" data-page="app">Speech Studio (/app)</a> or the 10-minute daily free Live AI Teacher allowance on <a href="/live-teacher" data-page="liveTeacher">/live-teacher</a>, Firebase Authentication and Firestore store only your user ID, email address, verification state, daily character and live-minute usage counts, credit balance, referral status, and activity timestamps.</p>
 
   <h2>5. Advertising, Cookies, and Consent (Google AdSense)</h2>
-  <p>Content pages and study guides are designed to display advertising served by Google AdSense and its third-party advertising partners. The <a href="/app" data-page="app">Speech Studio workspace (/app)</a>, sign-in screens, account pages, and contact pages never show ads.</p>
+  <p>Content pages and study guides are designed to display advertising served by Google AdSense and its third-party advertising partners. The <a href="/app" data-page="app">Speech Studio workspace (/app)</a>, <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher (/live-teacher)</a>, sign-in screens, account pages, and contact pages never show ads.</p>
   <p>When advertising is active, Google and its partners use cookies or similar identifiers to serve ads based on your prior visits to this website or other websites on the Internet. You can opt out of personalized advertising anytime by visiting <a href="https://adssettings.google.com" target="_blank" rel="noopener noreferrer">Google Ads Settings</a> or <a href="https://myadcenter.google.com" target="_blank" rel="noopener noreferrer">My Ad Center</a>. Visitors in the EEA, the UK, and Switzerland will be presented with a Google-certified consent banner before personalized advertising cookies are set, and can review cookie choices via the footer <strong>Cookie &amp; Ad Preferences</strong> button.</p>
 
   <h2>6. Contact Messages</h2>
@@ -1143,7 +1349,7 @@ const PRIVACY_HTML = `<section id="privacy" data-page-section="privacy" class="l
   <p>Account usage records and contact messages are kept only as long as your account remains active or as needed to enforce daily allowance fairness, prevent abuse, and maintain support records. Browser <code>localStorage</code> items stay on your device until cleared by you.</p>
 
   <h2>8. Children and Age Requirement (18 and Over)</h2>
-  <p>Voice Studio uses Google's Gemini API and requires users creating accounts or generating speech to be <strong>18 years of age or older</strong> (or have verifiable adult/guardian supervision where permitted by law). We do not knowingly collect personal account data from children under 18.</p>
+  <p>Voice Studio uses Google's Gemini API and requires users creating accounts, generating speech, or starting Live AI Teacher sessions to be <strong>18 years of age or older</strong> (or have verifiable adult/guardian supervision where permitted by law). We do not knowingly collect personal account data from children under 18.</p>
 
   <h2>9. Your Rights and Data Deletion Requests</h2>
   <p>You may request access to or deletion of your account record and contact messages anytime by emailing <a href="mailto:moutther580@gmail.com">moutther580@gmail.com</a> or submitting a request via the <a href="/contact" data-page="contact">Contact page</a> under <em>Privacy / Account Deletion Request</em>.</p>
@@ -1161,10 +1367,10 @@ const TERMS_HTML = `<section id="terms" data-page-section="terms" class="legal">
   <p>By accessing or using Voice Studio (<code>https://voice-studio-three.vercel.app</code>), you agree to these Terms and Conditions and confirm that you are <strong>18 years of age or older</strong>. If you do not accept these terms, please discontinue use of the website.</p>
 
   <h2>2. Service Tiers, Advertising on Content Pages, and Availability</h2>
-  <p>Voice Studio provides browser-based document preparation, a short public home-page preview, and an ad-free workspace at <a href="/app" data-page="app">/app</a> for verified accounts (subject to daily capacity limits) or visitors using their own Google AI Studio Gemini API key. Study guides and editorial pages may display advertising from Google AdSense to support hosting costs; the workspace itself stays ad-free.</p>
+  <p>Voice Studio provides browser-based document preparation, a short public home-page preview, an ad-free Speech Studio workspace at <a href="/app" data-page="app">/app</a>, and an ad-free <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher (/live-teacher)</a> for verified accounts (subject to 3,000 chars/day and 10 live minutes/day capacity limits) or visitors using their own Google AI Studio Gemini API key. Study guides and editorial pages may display advertising from Google AdSense to support hosting costs; tool workspaces stay ad-free.</p>
 
-  <h2>3. No Guarantee of Pronunciation or Transcription Accuracy</h2>
-  <p>Automated text extraction, translations, summaries, and AI voices can misread numbers, equations, symbols, scanned handwriting, or unfamiliar names. Voice Studio does not guarantee 100% accuracy. Always verify important academic, medical, legal, financial, or exam information directly against your original textbook or source document.</p>
+  <h2>3. No Guarantee of Pronunciation, Tutoring, or Transcription Accuracy</h2>
+  <p>Automated text extraction, translations, live AI tutoring explanations, and AI voices can misread numbers, equations, symbols, scanned handwriting, or unfamiliar names. Voice Studio does not guarantee 100% accuracy. Always verify important academic, medical, legal, financial, or exam information directly against your original textbook or qualified human instructor.</p>
 
   <h2>4. Fair Use, Quota Integrity, and Account Termination</h2>
   <p>You agree not to register multiple accounts to bypass daily allowances, run automated bots against shared endpoints, scrape or probe restricted routes, or disrupt service for other learners. Voice Studio may suspend or terminate abusive accounts or restrict shared server access without prior notice.</p>
@@ -1270,6 +1476,16 @@ export const ROUTES = [
     breadcrumbLabel: 'Subtitled Videos',
     robots: 'index, follow, max-snippet:-1, max-image-preview:large',
     html: VIDEO_SUBTITLES_HTML,
+  },
+  {
+    pageId: 'liveTeacher',
+    path: '/live-teacher',
+    title: 'Live AI Teacher in Urdu & English (Primary to PhD) | Voice Studio',
+    description:
+      'Real-time voice AI teacher for Pakistani blind, low-vision, and sighted students from Primary to PhD. Urdu and English explanations, 10 minutes free daily or unlimited with your own Gemini API key.',
+    breadcrumbLabel: 'Live AI Teacher',
+    robots: 'index, follow, max-snippet:-1, max-image-preview:large',
+    html: LIVE_TEACHER_HTML,
   },
   {
     pageId: 'guides',

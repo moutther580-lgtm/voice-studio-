@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; manifest-src 'self'; worker-src 'self' blob:; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebaseinstallations.googleapis.com https://apis.google.com https://www.googleapis.com https://www.gstatic.com https://accounts.google.com https://generativelanguage.googleapis.com; img-src 'self' data: blob: https://www.gstatic.com https://*.googleusercontent.com; media-src 'self' blob:; font-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; manifest-src 'self'; worker-src 'self' blob:; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com; connect-src 'self' ws: wss: https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebaseinstallations.googleapis.com https://apis.google.com https://www.googleapis.com https://www.gstatic.com https://accounts.google.com https://generativelanguage.googleapis.com; img-src 'self' data: blob: https://www.gstatic.com https://*.googleusercontent.com; media-src 'self' blob:; font-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#0B6B63">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -63,6 +63,7 @@
     <nav class="header-links" aria-label="Primary navigation">
       <a href="/pdf-to-audio" data-page="pdfStudio">PDF to Audio</a>
       <a href="/urdu-tts" data-page="urduTts">Urdu TTS</a>
+      <a href="/live-teacher" data-page="liveTeacher">Live Teacher</a>
       <a href="/guides" data-page="guides">Guides</a>
       <a href="/app" data-page="app">Speech Studio</a>
     </nav>
@@ -178,6 +179,7 @@
     <p class="drawer-section-label" aria-hidden="true">Studios</p>
     <a href="/" data-page="tool">Home (Try It Free)</a>
     <a href="/app" data-page="app">Speech Studio Workspace</a>
+    <a href="/live-teacher" data-page="liveTeacher">Live AI Teacher (Primary–PhD)</a>
     <a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book to Audio</a>
     <a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Translator</a>
     <a href="/account" data-page="account" id="navAccountLink" hidden></a>
@@ -294,6 +296,7 @@
         <ul class="footer-links">
           <li><a href="/" data-page="tool">Home (Try It Free)</a></li>
           <li><a href="/app" data-page="app">Speech Studio (/app)</a></li>
+          <li><a href="/live-teacher" data-page="liveTeacher">Live AI Teacher</a></li>
           <li><a href="/pdf-to-audio" data-page="pdfStudio">PDF &amp; Book to Audio</a></li>
           <li><a href="/podcast-studio" data-page="podcastStudio">Podcast &amp; Translator</a></li>
           <li><a href="/urdu-tts" data-page="urduTts">Urdu &amp; English TTS</a></li>

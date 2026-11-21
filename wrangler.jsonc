@@ -10,7 +10,8 @@
   },
   "vars": {
     "DAILY_FREE_CHAR_LIMIT": "3000",
-    "GLOBAL_DAILY_FREE_CHARS": "100000"
+    "GLOBAL_DAILY_FREE_CHARS": "100000",
+    "DAILY_LIVE_FREE_SECONDS": "600"
   }
   // Optional: Bind a Cloudflare KV namespace named USAGE_KV for persistent global/daily counters:
   // "kv_namespaces": [

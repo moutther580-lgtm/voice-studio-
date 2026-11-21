@@ -16,6 +16,7 @@ Voice Studio turns textbooks, academic handouts, EPUB books, and bilingual Urdu-
 ## Public Pages
 - [Home](https://voice-studio-three.vercel.app/): Interactive try-it preview, audio timeline, Urdu-English highlighted sample, before/after PDF cleanup, and founder note
 - [Speech Studio App](https://voice-studio-three.vercel.app/app): Ad-free authenticated converter workspace
+- [Live AI Teacher](https://voice-studio-three.vercel.app/live-teacher): Real-time Urdu and English voice teacher from Primary to PhD built for blind and sighted learners (10 min/day free, unlimited with BYOK)
 - [PDF to Audio Studio](https://voice-studio-three.vercel.app/pdf-to-audio): Extract chapters, page spans, or scanned pages into MP3
 - [Urdu & English TTS](https://voice-studio-three.vercel.app/urdu-tts): Bilingual Urdu Nastaliq and English voice workflow
 - [Podcast & Translator](https://voice-studio-three.vercel.app/podcast-studio): Two-speaker Host/Guest scripts and multilingual adaptation

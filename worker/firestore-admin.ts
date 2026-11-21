@@ -696,3 +696,77 @@ export async function saveFirestoreServerConfig(
     throw new Error(`Server config save failed (${res.status})`);
   }
 }
+
+export async function getFirestoreLiveUsedSeconds(
+  creds: ServiceAccountCreds,
+  projectId: string,
+  databaseId: string,
+  uid: string,
+  todayStr: string
+): Promise<number> {
+  const safeUid = assertSafeDocId(uid, 'uid');
+  const safeDate = assertSafeDocId(todayStr, 'date');
+  const token = await getGoogleAccessToken(creds);
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/systemCounters/live_${safeUid}_${safeDate}`;
+  const res = await fetch(docUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return 0;
+  if (!res.ok) {
+    throw new Error(`Live quota fetch failed (${res.status})`);
+  }
+  const doc = (await res.json()) as { fields?: Record<string, FsValue> };
+  return Math.max(0, readInt(doc.fields, 'usedSeconds', 0));
+}
+
+export async function addFirestoreLiveUsedSeconds(
+  creds: ServiceAccountCreds,
+  projectId: string,
+  databaseId: string,
+  uid: string,
+  todayStr: string,
+  deltaSeconds: number
+): Promise<number> {
+  const safeUid = assertSafeDocId(uid, 'uid');
+  const safeDate = assertSafeDocId(todayStr, 'date');
+  const cleanDelta = Math.max(1, Math.min(300, Math.floor(deltaSeconds)));
+  const token = await getGoogleAccessToken(creds);
+  const nowIso = new Date().toISOString();
+  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+
+  const res = await fetch(`${base}:commit`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      writes: [
+        {
+          update: {
+            name: `projects/${projectId}/databases/${databaseId}/documents/systemCounters/live_${safeUid}_${safeDate}`,
+            fields: {
+              uid: { stringValue: safeUid },
+              date: { stringValue: safeDate },
+              updatedAt: { timestampValue: nowIso },
+            },
+          },
+          updateMask: { fieldPaths: ['uid', 'date', 'updatedAt'] },
+          updateTransforms: [
+            {
+              fieldPath: 'usedSeconds',
+              increment: { integerValue: String(cleanDelta) },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Live quota increment failed (${res.status})`);
+  }
+
+  return getFirestoreLiveUsedSeconds(creds, projectId, databaseId, safeUid, safeDate);
+}
+

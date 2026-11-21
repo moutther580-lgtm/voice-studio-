@@ -119,13 +119,43 @@ function localApiDevPlugin() {
     });
   }
 
+  async function attachWs(server) {
+    if (!server?.httpServer) return;
+    try {
+      let mod;
+      if (typeof server.ssrLoadModule === 'function') {
+        mod = await server.ssrLoadModule('/server/live-teacher-ws.ts');
+      } else {
+        const { build } = await import('esbuild');
+        const result = await build({
+          entryPoints: ['server/live-teacher-ws.ts'],
+          bundle: true,
+          format: 'esm',
+          platform: 'node',
+          packages: 'external',
+          write: false,
+        });
+        const code = result.outputFiles[0].text;
+        const modUrl = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+        mod = await import(modUrl);
+      }
+      if (typeof mod?.attachLiveTeacherWebSocket === 'function') {
+        mod.attachLiveTeacherWebSocket(server.httpServer, getLocalEnv);
+      }
+    } catch (err) {
+      console.error('[local-ws-init]', err);
+    }
+  }
+
   return {
     name: 'local-api-dev',
     configureServer(server) {
       attachMiddleware(server.middlewares, server);
+      void attachWs(server);
     },
     configurePreviewServer(server) {
       attachMiddleware(server.middlewares, null);
+      void attachWs(server);
     },
   };
 }
